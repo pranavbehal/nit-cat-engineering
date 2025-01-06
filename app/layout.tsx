@@ -21,7 +21,7 @@ export default async function RootLayout({
 
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={fontSans.className}>
+      <body className={fontSans.className} suppressHydrationWarning>
         <ThemeProvider
           attribute="class"
           defaultTheme="system"

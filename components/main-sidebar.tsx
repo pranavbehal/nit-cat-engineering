@@ -6,7 +6,14 @@ import { usePathname, useRouter } from "next/navigation";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import { toast } from "sonner";
 
-import { Sidebar, SidebarHeader, SidebarMain } from "@/components/ui/sidebar";
+import {
+  Sidebar,
+  SidebarHeader,
+  SidebarMain,
+  SidebarNav,
+  SidebarNavItem,
+  SidebarFooter,
+} from "@/components/ui/sidebar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -50,7 +57,7 @@ export function MainSidebar() {
 
   return (
     <Sidebar>
-      <SidebarHeader className="border-b">
+      <SidebarHeader>
         <div className="flex h-[60px] items-center px-6">
           <div className="flex items-center gap-2 font-semibold">
             <svg
@@ -72,65 +79,55 @@ export function MainSidebar() {
           </div>
         </div>
       </SidebarHeader>
-      <SidebarMain className="flex flex-col justify-between">
-        <nav className="space-y-1 px-4 py-2">
-          {sidebarItems.map((item) => {
-            const isActive = pathname === item.href;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                  isActive
-                    ? "bg-secondary text-secondary-foreground"
-                    : "text-muted-foreground hover:bg-secondary hover:text-secondary-foreground"
-                }`}
-              >
-                <item.icon className="h-4 w-4" />
-                {item.title}
-              </Link>
-            );
-          })}
-        </nav>
-
-        <div className="mt-auto px-4 py-4 border-t">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                className="w-full justify-start gap-2 px-2"
-              >
-                <div className="flex items-center gap-2">
-                  <div className="h-8 w-8 rounded-full bg-secondary flex items-center justify-center">
-                    <span className="text-sm font-medium">U</span>
-                  </div>
-                  <div className="flex flex-col items-start text-sm">
-                    <span className="font-medium">User</span>
-                    <span className="text-xs text-muted-foreground">
-                      Manage Account
-                    </span>
-                  </div>
-                </div>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-[200px]">
-              <DropdownMenuItem asChild>
-                <Link href="/profile" className="cursor-pointer">
-                  <Settings className="mr-2 h-4 w-4" />
-                  Settings
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="text-red-600 cursor-pointer"
-                onClick={handleSignOut}
-              >
-                <LogOut className="mr-2 h-4 w-4" />
-                Sign Out
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+      <SidebarMain>
+        <SidebarNav>
+          {sidebarItems.map((item) => (
+            <SidebarNavItem
+              key={item.href}
+              href={item.href}
+              active={pathname === item.href}
+              as={Link}
+            >
+              <item.icon className="h-4 w-4" />
+              {item.title}
+            </SidebarNavItem>
+          ))}
+        </SidebarNav>
       </SidebarMain>
+      <SidebarFooter>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" className="w-full justify-start gap-2 px-2">
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded-full bg-secondary flex items-center justify-center">
+                  <span className="text-sm font-medium">U</span>
+                </div>
+                <div className="flex flex-col items-start text-sm">
+                  <span className="font-medium">User</span>
+                  <span className="text-xs text-muted-foreground">
+                    Manage Account
+                  </span>
+                </div>
+              </div>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-[200px]">
+            <DropdownMenuItem asChild>
+              <Link href="/profile" className="cursor-pointer">
+                <Settings className="mr-2 h-4 w-4" />
+                Settings
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="text-red-600 cursor-pointer"
+              onClick={handleSignOut}
+            >
+              <LogOut className="mr-2 h-4 w-4" />
+              Sign Out
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </SidebarFooter>
     </Sidebar>
   );
 }

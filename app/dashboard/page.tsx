@@ -48,7 +48,7 @@ export default function DashboardPage() {
       const devicesWithReadings = dbDevices.map((device) => ({
         id: device.id,
         name: device.name,
-        status: "online",
+        status: "online" as const,
         lastReading: {
           nitrogen: 65,
           phosphorus: 45,
