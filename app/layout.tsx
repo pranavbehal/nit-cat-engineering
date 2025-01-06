@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { Toaster } from "sonner";
 
-import { AppSidebar } from "@/components/app-sidebar";
+import { MainSidebar } from "@/components/main-sidebar";
 import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
 
@@ -29,8 +29,8 @@ export default async function RootLayout({
           disableTransitionOnChange
         >
           <div className="flex min-h-screen">
-            {session && <AppSidebar />}
-            <main className="flex-1">{children}</main>
+            {session && <MainSidebar />}
+            <main className="flex-1 overflow-y-auto">{children}</main>
           </div>
           <Toaster richColors />
         </ThemeProvider>
