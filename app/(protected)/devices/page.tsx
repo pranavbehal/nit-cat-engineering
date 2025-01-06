@@ -21,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Trash2 } from "lucide-react";
 
 interface Device {
   id: string;
@@ -125,6 +126,10 @@ export default function DevicesPage() {
     const toastId = toast.loading("Pairing device...");
 
     try {
+      // Simulate pairing delay (2-4 seconds)
+      const delay = Math.floor(Math.random() * 2000) + 2000; // Random between 2000-4000ms
+      await new Promise((resolve) => setTimeout(resolve, delay));
+
       // Add device to database
       const { data: newDevice, error } = await supabase
         .from("devices")
@@ -190,6 +195,27 @@ export default function DevicesPage() {
     );
   };
 
+  const handleRemoveDevice = async (deviceId: string) => {
+    const confirmed = window.confirm(
+      "Are you sure you want to remove this device?"
+    );
+    if (!confirmed) return;
+
+    try {
+      const { error } = await supabase
+        .from("devices")
+        .delete()
+        .eq("id", deviceId);
+
+      if (error) throw error;
+
+      setDevices((prev) => prev.filter((device) => device.id !== deviceId));
+      toast.success("Device removed successfully");
+    } catch (error) {
+      toast.error("Failed to remove device");
+    }
+  };
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex justify-between items-center">
@@ -242,15 +268,25 @@ export default function DevicesPage() {
               <CardHeader>
                 <CardTitle className="flex justify-between items-center">
                   {device.name}
-                  <span
-                    className={`px-2 py-1 text-sm rounded-full ${
-                      device.status === "online"
-                        ? "bg-green-100 text-green-800"
-                        : "bg-red-100 text-red-800"
-                    }`}
-                  >
-                    {device.status}
-                  </span>
+                  <div className="flex gap-2 items-center">
+                    <span
+                      className={`px-2 py-1 text-sm rounded-full ${
+                        device.status === "online"
+                          ? "bg-green-100 text-green-800"
+                          : "bg-red-100 text-red-800"
+                      }`}
+                    >
+                      {device.status}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-red-600 hover:text-red-700"
+                      onClick={() => handleRemoveDevice(device.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">

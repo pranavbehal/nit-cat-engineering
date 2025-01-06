@@ -19,11 +19,10 @@ interface Device {
   id: string;
   name: string;
   status: "online" | "offline";
-  lastReading: {
+  readings: {
     nitrogen: number;
     phosphorus: number;
     potassium: number;
-    timestamp: string;
   };
 }
 
@@ -49,11 +48,10 @@ export default function DashboardPage() {
         id: device.id,
         name: device.name,
         status: "online" as const,
-        lastReading: {
+        readings: {
           nitrogen: 65,
           phosphorus: 45,
           potassium: 80,
-          timestamp: new Date().toISOString(),
         },
       }));
 
@@ -98,17 +96,55 @@ export default function DashboardPage() {
 
   // Add these computed values
   const averageNitrogen = formatNumber(
-    devices.reduce((acc, dev) => acc + dev.lastReading.nitrogen, 0) /
+    devices.reduce((acc, dev) => acc + dev.readings.nitrogen, 0) /
       devices.length
   );
   const averagePhosphorus = formatNumber(
-    devices.reduce((acc, dev) => acc + dev.lastReading.phosphorus, 0) /
+    devices.reduce((acc, dev) => acc + dev.readings.phosphorus, 0) /
       devices.length
   );
   const averagePotassium = formatNumber(
-    devices.reduce((acc, dev) => acc + dev.lastReading.potassium, 0) /
+    devices.reduce((acc, dev) => acc + dev.readings.potassium, 0) /
       devices.length
   );
+
+  // Update the real-time simulation
+  useEffect(() => {
+    if (devices.length === 0) return;
+
+    const interval = setInterval(() => {
+      setDevices((currentDevices) =>
+        currentDevices.map((device) => ({
+          ...device,
+          readings: {
+            nitrogen: Math.max(
+              0,
+              Math.min(
+                100,
+                device.readings.nitrogen + (Math.random() - 0.5) * 5
+              )
+            ),
+            phosphorus: Math.max(
+              0,
+              Math.min(
+                100,
+                device.readings.phosphorus + (Math.random() - 0.5) * 5
+              )
+            ),
+            potassium: Math.max(
+              0,
+              Math.min(
+                100,
+                device.readings.potassium + (Math.random() - 0.5) * 5
+              )
+            ),
+          },
+        }))
+      );
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [devices]);
 
   if (devices.length === 0) {
     return (
@@ -200,15 +236,11 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
+                <div>Nitrogen: {formatNumber(device.readings.nitrogen)}%</div>
                 <div>
-                  Nitrogen: {formatNumber(device.lastReading.nitrogen)}%
+                  Phosphorus: {formatNumber(device.readings.phosphorus)}%
                 </div>
-                <div>
-                  Phosphorus: {formatNumber(device.lastReading.phosphorus)}%
-                </div>
-                <div>
-                  Potassium: {formatNumber(device.lastReading.potassium)}%
-                </div>
+                <div>Potassium: {formatNumber(device.readings.potassium)}%</div>
               </div>
             </CardContent>
           </Card>
