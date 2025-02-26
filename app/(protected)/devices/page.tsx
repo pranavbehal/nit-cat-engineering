@@ -22,19 +22,21 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Trash2 } from "lucide-react";
-
-interface Device {
-  id: string;
-  name: string;
-  status: "online" | "offline";
-  nitrogenGate: "open" | "closed";
-  nitrogenTimer: number;
-  readings: {
-    nitrogen: number;
-    phosphorus: number;
-    potassium: number;
-  };
-}
+import {
+  getDevices,
+  updateDevices,
+  initializeDeviceWithReadings,
+  Device,
+  DEFAULT_GROUPS,
+  getThresholds,
+} from "@/lib/device-utils";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface DBDevice {
   id: string;
@@ -53,69 +55,64 @@ export default function DevicesPage() {
   // Fetch devices from database
   useEffect(() => {
     async function fetchDevices() {
-      const { data: dbDevices, error } = await supabase
-        .from("devices")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (error) {
-        toast.error("Failed to fetch devices");
-        return;
-      }
-
-      // Convert DB devices to local device state with simulated readings
-      const devicesWithReadings = (dbDevices as DBDevice[]).map((device) => ({
-        id: device.id,
-        name: device.name,
-        status: "online" as const,
-        nitrogenGate: "closed" as const,
-        nitrogenTimer: 24,
-        readings: {
-          nitrogen: 50 + Math.random() * 20,
-          phosphorus: 40 + Math.random() * 20,
-          potassium: 60 + Math.random() * 20,
-        },
-      }));
-
-      setDevices(devicesWithReadings);
+      const devices = await getDevices();
+      setDevices(devices);
     }
 
     fetchDevices();
-  }, [supabase]);
+  }, []);
 
   // Simulate real-time readings for existing devices
   useEffect(() => {
     if (devices.length === 0) return;
 
     const interval = setInterval(() => {
-      setDevices((currentDevices) =>
-        currentDevices.map((device) => ({
-          ...device,
-          readings: {
-            nitrogen: Math.max(
-              0,
-              Math.min(
-                100,
-                device.readings.nitrogen + (Math.random() - 0.5) * 5
-              )
-            ),
-            phosphorus: Math.max(
-              0,
-              Math.min(
-                100,
-                device.readings.phosphorus + (Math.random() - 0.5) * 5
-              )
-            ),
-            potassium: Math.max(
-              0,
-              Math.min(
-                100,
-                device.readings.potassium + (Math.random() - 0.5) * 5
-              )
-            ),
-          },
-        }))
-      );
+      setDevices((currentDevices) => {
+        const updatedDevices = currentDevices.map((device, index) => {
+          const thresholds = getThresholds();
+
+          const tendency = index === 0 ? 0.95 : 0.85;
+
+          const targetNitrogen = thresholds.nitrogen.max * tendency;
+          const targetPhosphorus = thresholds.phosphorus.max * tendency;
+          const targetPotassium = thresholds.potassium.max * tendency;
+
+          return {
+            ...device,
+            readings: {
+              nitrogen: Math.max(
+                0,
+                Math.min(
+                  100,
+                  device.readings.nitrogen +
+                    (targetNitrogen - device.readings.nitrogen) * 0.1 +
+                    (Math.random() - 0.5) * 2
+                )
+              ),
+              phosphorus: Math.max(
+                0,
+                Math.min(
+                  100,
+                  device.readings.phosphorus +
+                    (targetPhosphorus - device.readings.phosphorus) * 0.1 +
+                    (Math.random() - 0.5) * 2
+                )
+              ),
+              potassium: Math.max(
+                0,
+                Math.min(
+                  100,
+                  device.readings.potassium +
+                    (targetPotassium - device.readings.potassium) * 0.1 +
+                    (Math.random() - 0.5) * 2
+                )
+              ),
+            },
+          };
+        });
+        updateDevices(updatedDevices);
+        return updatedDevices;
+      });
     }, 1000);
 
     return () => clearInterval(interval);
@@ -126,8 +123,8 @@ export default function DevicesPage() {
     const toastId = toast.loading("Pairing device...");
 
     try {
-      // Simulate pairing delay (2-4 seconds)
-      const delay = Math.floor(Math.random() * 2000) + 2000; // Random between 2000-4000ms
+      // Simulate pairing delay
+      const delay = Math.floor(Math.random() * 2000) + 2000;
       await new Promise((resolve) => setTimeout(resolve, delay));
 
       // Add device to database
@@ -144,21 +141,13 @@ export default function DevicesPage() {
 
       if (error) throw error;
 
-      // Add device to local state with simulated readings
-      const deviceWithReadings: Device = {
-        id: newDevice.id,
-        name: newDevice.name,
-        status: "online",
-        nitrogenGate: "closed",
-        nitrogenTimer: 24,
-        readings: {
-          nitrogen: 50 + Math.random() * 20,
-          phosphorus: 40 + Math.random() * 20,
-          potassium: 60 + Math.random() * 20,
-        },
-      };
+      // Add device to local state and storage
+      const deviceWithReadings = initializeDeviceWithReadings(newDevice);
+      const updatedDevices = [deviceWithReadings, ...devices];
 
-      setDevices((prev) => [deviceWithReadings, ...prev]);
+      setDevices(updatedDevices);
+      updateDevices(updatedDevices);
+
       toast.success("Device paired successfully!", { id: toastId });
       setIsDialogOpen(false);
     } catch (error) {
@@ -216,6 +205,17 @@ export default function DevicesPage() {
     }
   };
 
+  const updateDeviceGroup = (deviceId: string, group: string) => {
+    setDevices((currentDevices) => {
+      const updatedDevices = currentDevices.map((device) =>
+        device.id === deviceId ? { ...device, group } : device
+      );
+      updateDevices(updatedDevices);
+      return updatedDevices;
+    });
+    toast.success(`Device moved to ${group}`);
+  };
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex justify-between items-center">
@@ -266,28 +266,48 @@ export default function DevicesPage() {
           {devices.map((device) => (
             <Card key={device.id}>
               <CardHeader>
-                <CardTitle className="flex justify-between items-center">
+                <CardTitle className="flex justify-between">
                   {device.name}
-                  <div className="flex gap-2 items-center">
-                    <span
-                      className={`px-2 py-1 text-sm rounded-full ${
-                        device.status === "online"
-                          ? "bg-green-100 text-green-800"
-                          : "bg-red-100 text-red-800"
-                      }`}
-                    >
-                      {device.status}
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-red-600 hover:text-red-700"
-                      onClick={() => handleRemoveDevice(device.id)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
+                  <span
+                    className={`px-2 py-1 text-sm rounded-full ${
+                      device.status === "online"
+                        ? "bg-green-100 text-green-800"
+                        : "bg-red-100 text-red-800"
+                    }`}
+                  >
+                    {device.status}
+                  </span>
                 </CardTitle>
+                <div className="flex justify-between items-center mt-2">
+                  <span className="text-sm text-muted-foreground">
+                    Group: {device.group || "Uncategorized"}
+                  </span>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="sm">
+                        Change Group
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent>
+                      <DropdownMenuLabel>Select Group</DropdownMenuLabel>
+                      {DEFAULT_GROUPS.map((group) => (
+                        <DropdownMenuItem
+                          key={group}
+                          onClick={() => updateDeviceGroup(device.id, group)}
+                        >
+                          {group}
+                        </DropdownMenuItem>
+                      ))}
+                      <DropdownMenuItem
+                        onClick={() =>
+                          updateDeviceGroup(device.id, "Uncategorized")
+                        }
+                      >
+                        Uncategorized
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
@@ -326,7 +346,7 @@ export default function DevicesPage() {
                   <div>
                     <Label>Release Timer (hours)</Label>
                     <Select
-                      value={device.nitrogenTimer.toString()}
+                      value={device.nitrogenTimer?.toString() || ""}
                       onValueChange={(value) =>
                         updateNitrogenTimer(device.id, parseInt(value))
                       }

@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { Toaster } from "sonner";
 
-import { MainSidebar } from "@/components/main-sidebar";
+import { ClientLayout } from "@/components/client-layout";
 import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
 
@@ -14,10 +14,11 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = createServerComponentClient({ cookies });
+  const cookieStore = cookies();
+  const supabase = createServerComponentClient({ cookies: () => cookieStore });
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
+    data: { user },
+  } = await supabase.auth.getUser();
 
   return (
     <html lang="en" suppressHydrationWarning>
@@ -28,10 +29,7 @@ export default async function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <div className="flex min-h-screen">
-            {session && <MainSidebar />}
-            <main className="flex-1 overflow-y-auto">{children}</main>
-          </div>
+          <ClientLayout serverUser={user}>{children}</ClientLayout>
           <Toaster richColors />
         </ThemeProvider>
       </body>

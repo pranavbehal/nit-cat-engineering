@@ -7,3 +7,5 @@ export default function ProtectedLayout({
 }) {
   return <AuthGuard>{children}</AuthGuard>;
 }
+
+export const runtime = "nodejs";
