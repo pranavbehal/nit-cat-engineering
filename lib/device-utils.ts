@@ -1,5 +1,8 @@
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 
+// Add this at the top to check for browser environment
+const isClient = typeof window !== "undefined";
+
 // Define the Device interface in a central location
 export interface Device {
   id: string;
@@ -55,46 +58,61 @@ const DEVICES_STORAGE_KEY = "nitcat-devices";
 const CHART_DATA_STORAGE_KEY = "nitcat-chart-data";
 
 // Get devices from storage or fetch from DB
-export async function getDevices(): Promise<Device[]> {
+export function getDevices(): Promise<Device[]> {
+  // If server-side, we can't use localStorage
+  if (!isClient) {
+    return Promise.resolve([]);
+  }
+
   // Try to get from localStorage first
   const storedDevices = localStorage.getItem(DEVICES_STORAGE_KEY);
   if (storedDevices) {
-    return JSON.parse(storedDevices);
+    return Promise.resolve(JSON.parse(storedDevices));
   }
 
   // Otherwise fetch from DB
-  const supabase = createClientComponentClient();
-  const { data: dbDevices, error } = await supabase
-    .from("devices")
-    .select("*")
-    .order("created_at", { ascending: false });
+  return Promise.resolve(
+    createClientComponentClient()
+      .from("devices")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .then(({ data: dbDevices, error }) => {
+        if (error || !dbDevices) {
+          return [];
+        }
 
-  if (error || !dbDevices) {
-    return [];
-  }
+        // Initialize devices with readings
+        const devices = dbDevices.map(initializeDeviceWithReadings);
 
-  // Initialize devices with readings
-  const devices = dbDevices.map(initializeDeviceWithReadings);
-
-  // Store in localStorage
-  localStorage.setItem(DEVICES_STORAGE_KEY, JSON.stringify(devices));
-  return devices;
+        // Store in localStorage
+        if (isClient) {
+          localStorage.setItem(DEVICES_STORAGE_KEY, JSON.stringify(devices));
+        }
+        return devices;
+      })
+  );
 }
 
 // Update devices in storage
 export function updateDevices(devices: Device[]) {
-  localStorage.setItem(DEVICES_STORAGE_KEY, JSON.stringify(devices));
+  if (isClient) {
+    localStorage.setItem(DEVICES_STORAGE_KEY, JSON.stringify(devices));
+  }
 }
 
 // Get chart data from storage
 export function getChartData(): any[] {
+  if (!isClient) return [];
+
   const storedData = localStorage.getItem(CHART_DATA_STORAGE_KEY);
   return storedData ? JSON.parse(storedData) : [];
 }
 
 // Update chart data in storage
 export function updateChartData(chartData: any[]) {
-  localStorage.setItem(CHART_DATA_STORAGE_KEY, JSON.stringify(chartData));
+  if (isClient) {
+    localStorage.setItem(CHART_DATA_STORAGE_KEY, JSON.stringify(chartData));
+  }
 }
 
 // Update device group
@@ -129,13 +147,17 @@ const THRESHOLDS_STORAGE_KEY = "nitcat-thresholds";
 
 // Get thresholds from storage
 export function getThresholds(): ThresholdSettings {
+  if (!isClient) return DEFAULT_THRESHOLDS;
+
   const storedThresholds = localStorage.getItem(THRESHOLDS_STORAGE_KEY);
   return storedThresholds ? JSON.parse(storedThresholds) : DEFAULT_THRESHOLDS;
 }
 
 // Update thresholds in storage
 export function updateThresholds(thresholds: ThresholdSettings) {
-  localStorage.setItem(THRESHOLDS_STORAGE_KEY, JSON.stringify(thresholds));
+  if (isClient) {
+    localStorage.setItem(THRESHOLDS_STORAGE_KEY, JSON.stringify(thresholds));
+  }
 }
 
 // Check device readings against thresholds

@@ -1,5 +1,8 @@
 import { Device } from "./device-utils";
 
+// Add browser check
+const isClient = typeof window !== "undefined";
+
 export function generateCSV(devices: Device[]): string {
   // Create CSV header
   const header =
@@ -23,6 +26,8 @@ export function generateCSV(devices: Device[]): string {
 }
 
 export function downloadCSV(csv: string, filename: string): void {
+  if (!isClient) return;
+
   // Create a Blob with the CSV data
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
 
