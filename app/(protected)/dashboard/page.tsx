@@ -56,7 +56,7 @@ export default function DashboardPage() {
     if (devices.length === 0) return;
 
     // Try to get existing chart data
-    let existingChart = getChartData();
+    const existingChart = getChartData();
 
     // If we have existing data, use it
     if (existingChart.length > 0) {
