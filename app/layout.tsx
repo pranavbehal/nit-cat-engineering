@@ -9,6 +9,8 @@ import "./globals.css";
 
 const fontSans = GeistSans;
 
+export const runtime = "nodejs";
+
 export default async function RootLayout({
   children,
 }: {
