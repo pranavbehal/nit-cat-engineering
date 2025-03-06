@@ -52,8 +52,8 @@ export default function ProfilePage() {
   if (!mounted) return null;
 
   return (
-    <div className="container py-10 p-6">
-      <h1 className="text-3xl font-bold mb-6">Profile Settings</h1>
+    <div className="container py-6 px-4 sm:px-6">
+      <h1 className="text-2xl sm:text-3xl font-bold mb-6">Profile Settings</h1>
 
       <div className="grid gap-6 md:grid-cols-2">
         <Card>
@@ -254,11 +254,11 @@ export default function ProfilePage() {
           </CardContent>
         </Card>
 
-        <div className="md:col-span-2 flex justify-end gap-2">
+        <div className="md:col-span-2 flex justify-end gap-2 mt-4">
           <Button variant="outline" onClick={handleReset}>
-            Reset to Defaults
+            Reset
           </Button>
-          <Button onClick={handleSave}>Save Settings</Button>
+          <Button onClick={handleSave}>Save</Button>
         </div>
       </div>
     </div>

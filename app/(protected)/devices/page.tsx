@@ -307,23 +307,34 @@ export default function DevicesPage() {
   };
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold">Devices</h1>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center space-x-2">
-            <Label htmlFor="gate-mode">Auto Gate Control</Label>
-            <Switch
-              id="gate-mode"
-              checked={gateMode === "auto"}
-              onCheckedChange={toggleGateMode}
-            />
+    <div className="container py-6 px-4 sm:px-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+        <h1 className="text-2xl sm:text-3xl font-bold">My Devices</h1>
+
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 w-full sm:w-auto">
+          <div className="w-full sm:w-auto">
+            <Select
+              value={gateMode}
+              onValueChange={(value: "auto" | "manual") => {
+                setGateMode(value);
+                updateGateSettings({ mode: value });
+                toast.success(`Gate control set to ${value} mode`);
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-[180px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">Auto Gate Control</SelectItem>
+                <SelectItem value="manual">Manual Gate Control</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <Button onClick={() => setIsDialogOpen(true)}>Add Device</Button>
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
         {devices.map((device) => (
           <Card key={device.id}>
             <CardHeader className="pb-4">

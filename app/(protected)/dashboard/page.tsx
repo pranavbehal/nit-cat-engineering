@@ -274,33 +274,15 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold mt-2">Dashboard</h1>
-        <div className="space-x-2">
-          <Button
-            variant="outline"
-            onClick={() => {
-              exportDeviceData(devices);
-              toast.success("Device data exported to CSV");
-            }}
-          >
-            <Download className="mr-1 h-4 w-4" /> Export Devices
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => {
-              exportChartData(chartData);
-              toast.success("Chart data exported to CSV");
-            }}
-          >
-            <Download className="mr-1 h-4 w-4" /> Export Chart
-          </Button>
-        </div>
+    <div className="container py-6 px-4 sm:px-6 space-y-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <h1 className="text-2xl sm:text-3xl font-bold">Dashboard</h1>
+        <Button asChild>
+          <Link href="/devices">Add Device</Link>
+        </Button>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Devices</CardTitle>
@@ -345,7 +327,6 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* Group Selector */}
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-xl font-semibold">Devices</h2>
         <Select
@@ -367,7 +348,6 @@ export default function DashboardPage() {
         </Select>
       </div>
 
-      {/* Device Cards */}
       <div className="grid gap-4 md:grid-cols-3">
         {filteredDevices.map((device) => (
           <Card key={device.id} className="overflow-hidden">
@@ -454,13 +434,12 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      {/* Chart */}
       <Card>
         <CardHeader>
           <CardTitle>24-Hour NPK Levels</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="h-[300px]">
+          <div className="h-[250px] sm:h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart
                 data={chartData}
