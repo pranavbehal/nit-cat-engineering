@@ -99,7 +99,9 @@ export default function SignUpPage() {
             <p className="text-lg">
               Optimize your plant growth with precise nitrogen management
             </p>
-            <footer className="text-sm">Nitrogen management system</footer>
+            <footer className="text-sm">
+              Nitrogen management system - 2009-901
+            </footer>
           </blockquote>
         </div>
       </div>

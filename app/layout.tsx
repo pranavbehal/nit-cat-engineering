@@ -2,6 +2,7 @@ import { GeistSans } from "geist/font";
 import { cookies } from "next/headers";
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { Toaster } from "sonner";
+import { Analytics } from "@vercel/analytics/react";
 
 import { ClientLayout } from "@/components/client-layout";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -33,6 +34,7 @@ export default async function RootLayout({
         >
           <ClientLayout serverUser={user}>{children}</ClientLayout>
           <Toaster richColors />
+          <Analytics />
         </ThemeProvider>
       </body>
     </html>
