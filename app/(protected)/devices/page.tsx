@@ -29,6 +29,9 @@ import {
   Device,
   DEFAULT_GROUPS,
   getThresholds,
+  getGateSettings,
+  updateGateSettings,
+  updateDeviceGateAuto,
 } from "@/lib/device-utils";
 import {
   DropdownMenu,
@@ -37,6 +40,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Switch } from "@/components/ui/switch";
 
 interface DBDevice {
   id: string;
@@ -50,34 +54,32 @@ export default function DevicesPage() {
   const [isPairing, setPairing] = useState(false);
   const [newDeviceName, setNewDeviceName] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [gateMode, setGateMode] = useState<"auto" | "manual">("auto");
   const supabase = createClientComponentClient();
+  const thresholds = getThresholds();
 
-  // Fetch devices from database
   useEffect(() => {
-    async function fetchDevices() {
+    async function fetchData() {
       const devices = await getDevices();
       setDevices(devices);
+      const settings = getGateSettings();
+      setGateMode(settings.mode);
     }
 
-    fetchDevices();
+    fetchData();
   }, []);
 
-  // Simulate real-time readings for existing devices
   useEffect(() => {
     if (devices.length === 0) return;
 
     const interval = setInterval(() => {
       setDevices((currentDevices) => {
-        const updatedDevices = currentDevices.map((device, index) => {
+        const updatedDevices = currentDevices.map((device) => {
           const thresholds = getThresholds();
 
-          const tendency = index === 0 ? 0.95 : 0.85;
+          const gateEffect = device.nitrogenGate === "open" ? 0.8 : -0.8;
 
-          const targetNitrogen = thresholds.nitrogen.max * tendency;
-          const targetPhosphorus = thresholds.phosphorus.max * tendency;
-          const targetPotassium = thresholds.potassium.max * tendency;
-
-          return {
+          const updatedDevice = {
             ...device,
             readings: {
               nitrogen: Math.max(
@@ -85,8 +87,8 @@ export default function DevicesPage() {
                 Math.min(
                   100,
                   device.readings.nitrogen +
-                    (targetNitrogen - device.readings.nitrogen) * 0.1 +
-                    (Math.random() - 0.5) * 2
+                    gateEffect +
+                    (Math.random() - 0.5) * 1
                 )
               ),
               phosphorus: Math.max(
@@ -94,8 +96,8 @@ export default function DevicesPage() {
                 Math.min(
                   100,
                   device.readings.phosphorus +
-                    (targetPhosphorus - device.readings.phosphorus) * 0.1 +
-                    (Math.random() - 0.5) * 2
+                    gateEffect * 0.7 +
+                    (Math.random() - 0.5) * 1
                 )
               ),
               potassium: Math.max(
@@ -103,20 +105,68 @@ export default function DevicesPage() {
                 Math.min(
                   100,
                   device.readings.potassium +
-                    (targetPotassium - device.readings.potassium) * 0.1 +
-                    (Math.random() - 0.5) * 2
+                    gateEffect * 0.5 +
+                    (Math.random() - 0.5) * 1
                 )
               ),
             },
           };
+
+          if (gateMode === "auto") {
+            const autoUpdatedDevice = updateDeviceGateAuto(updatedDevice);
+
+            if (autoUpdatedDevice.nitrogenGate !== device.nitrogenGate) {
+              toast.info(
+                `${device.name} gate automatically ${
+                  autoUpdatedDevice.nitrogenGate === "open"
+                    ? "opened"
+                    : "closed"
+                }`
+              );
+            }
+
+            return autoUpdatedDevice;
+          }
+
+          return updatedDevice;
         });
+
         updateDevices(updatedDevices);
         return updatedDevices;
       });
-    }, 1000);
+    }, 1000); // Update every 1 second
 
     return () => clearInterval(interval);
-  }, [devices]);
+  }, [devices, gateMode]);
+
+  const toggleGateMode = () => {
+    const newMode = gateMode === "auto" ? "manual" : "auto";
+    setGateMode(newMode);
+    updateGateSettings({ mode: newMode });
+    toast.success(`Gate control mode switched to ${newMode}`);
+  };
+
+  const toggleGate = (
+    deviceId: string,
+    currentState: "open" | "closed" | undefined
+  ) => {
+    if (gateMode !== "manual") {
+      toast.error("Cannot manually control gates in auto mode");
+      return;
+    }
+
+    const newState = currentState === "open" ? "closed" : "open";
+
+    setDevices(
+      devices.map((device) => {
+        if (device.id === deviceId) {
+          toast.success(`${device.name} gate manually ${newState}`);
+          return { ...device, nitrogenGate: newState };
+        }
+        return device;
+      })
+    );
+  };
 
   const handlePairDevice = async () => {
     setPairing(true);
@@ -127,7 +177,6 @@ export default function DevicesPage() {
       const delay = Math.floor(Math.random() * 2000) + 2000;
       await new Promise((resolve) => setTimeout(resolve, delay));
 
-      // Add device to database
       const { data: newDevice, error } = await supabase
         .from("devices")
         .insert([
@@ -156,32 +205,6 @@ export default function DevicesPage() {
       setPairing(false);
       setNewDeviceName("");
     }
-  };
-
-  const toggleNitrogenGate = (deviceId: string) => {
-    setDevices((prev) =>
-      prev.map((device) =>
-        device.id === deviceId
-          ? {
-              ...device,
-              nitrogenGate: device.nitrogenGate === "open" ? "closed" : "open",
-            }
-          : device
-      )
-    );
-  };
-
-  const updateNitrogenTimer = (deviceId: string, hours: number) => {
-    setDevices((prev) =>
-      prev.map((device) =>
-        device.id === deviceId
-          ? {
-              ...device,
-              nitrogenTimer: hours,
-            }
-          : device
-      )
-    );
   };
 
   const handleRemoveDevice = async (deviceId: string) => {
@@ -216,159 +239,229 @@ export default function DevicesPage() {
     toast.success(`Device moved to ${group}`);
   };
 
+  const handleDeleteDevice = (deviceId: string, deviceName: string) => {
+    if (window.confirm(`Are you sure you want to delete ${deviceName}?`)) {
+      setDevices(devices.filter((device) => device.id !== deviceId));
+      updateDevices(devices.filter((device) => device.id !== deviceId));
+      toast.success(`Device "${deviceName}" has been deleted`);
+    }
+  };
+
+  const handleGroupChange = (deviceId: string, group: string) => {
+    setDevices(
+      devices.map((device) => {
+        if (device.id === deviceId) {
+          return { ...device, group };
+        }
+        return device;
+      })
+    );
+    updateDevices(
+      devices.map((device) => {
+        if (device.id === deviceId) {
+          return { ...device, group };
+        }
+        return device;
+      })
+    );
+    toast.success(`Device moved to ${group}`);
+  };
+
+  const ThresholdProgressBar = ({
+    value,
+    min,
+    max,
+    color,
+  }: {
+    value: number;
+    min: number;
+    max: number;
+    color: string;
+  }) => {
+    return (
+      <div className="h-2 bg-gray-200 rounded-full overflow-hidden relative">
+        <div
+          className={`h-full ${color}`}
+          style={{
+            width: `${Math.min(100, (value / 100) * 100)}%`,
+          }}
+        ></div>
+
+        <div
+          className="absolute top-0 bottom-0 w-0.5 bg-yellow-500"
+          style={{
+            left: `${min}%`,
+            zIndex: 2,
+          }}
+        />
+
+        <div
+          className="absolute top-0 bottom-0 w-0.5 bg-red-500"
+          style={{
+            left: `${max}%`,
+            zIndex: 2,
+          }}
+        />
+      </div>
+    );
+  };
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold">My Devices</h1>
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button>Pair New Device</Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Pair New Device</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="name">Device Name</Label>
-                <Input
-                  id="name"
-                  placeholder="Enter device name"
-                  value={newDeviceName}
-                  onChange={(e) => setNewDeviceName(e.target.value)}
-                />
-              </div>
-              <Button
-                onClick={handlePairDevice}
-                disabled={isPairing || !newDeviceName}
-                className="w-full"
-              >
-                {isPairing ? "Pairing..." : "Pair Device"}
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
+        <h1 className="text-3xl font-bold">Devices</h1>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center space-x-2">
+            <Label htmlFor="gate-mode">Auto Gate Control</Label>
+            <Switch
+              id="gate-mode"
+              checked={gateMode === "auto"}
+              onCheckedChange={toggleGateMode}
+            />
+          </div>
+          <Button onClick={() => setIsDialogOpen(true)}>Add Device</Button>
+        </div>
       </div>
 
-      {devices.length === 0 ? (
-        <Card>
-          <CardContent className="py-8">
-            <div className="text-center space-y-2">
-              <p className="text-muted-foreground">No devices paired yet</p>
-              <Button variant="outline" onClick={() => setIsDialogOpen(true)}>
-                Pair your first device
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid gap-6 md:grid-cols-2">
-          {devices.map((device) => (
-            <Card key={device.id}>
-              <CardHeader>
-                <CardTitle className="flex justify-between">
-                  {device.name}
-                  <span
-                    className={`px-2 py-1 text-sm rounded-full ${
-                      device.status === "online"
-                        ? "bg-green-100 text-green-800"
-                        : "bg-red-100 text-red-800"
-                    }`}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        {devices.map((device) => (
+          <Card key={device.id}>
+            <CardHeader className="pb-4">
+              <div className="flex justify-between items-center">
+                <CardTitle className="text-lg">{device.name}</CardTitle>
+                <div className="flex items-center space-x-2">
+                  <Select
+                    defaultValue={device.group || "Uncategorized"}
+                    onValueChange={(value) =>
+                      handleGroupChange(device.id, value)
+                    }
                   >
-                    {device.status}
-                  </span>
-                </CardTitle>
-                <div className="flex justify-between items-center mt-2">
-                  <span className="text-sm text-muted-foreground">
-                    Group: {device.group || "Uncategorized"}
-                  </span>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="outline" size="sm">
-                        Change Group
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent>
-                      <DropdownMenuLabel>Select Group</DropdownMenuLabel>
+                    <SelectTrigger className="h-8 w-36">
+                      <SelectValue placeholder="Group" />
+                    </SelectTrigger>
+                    <SelectContent>
                       {DEFAULT_GROUPS.map((group) => (
-                        <DropdownMenuItem
-                          key={group}
-                          onClick={() => updateDeviceGroup(device.id, group)}
-                        >
+                        <SelectItem key={group} value={group}>
                           {group}
-                        </DropdownMenuItem>
+                        </SelectItem>
                       ))}
-                      <DropdownMenuItem
-                        onClick={() =>
-                          updateDeviceGroup(device.id, "Uncategorized")
-                        }
-                      >
+                      <SelectItem value="Uncategorized">
                         Uncategorized
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => handleDeleteDevice(device.id, device.name)}
+                    className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-100"
+                  >
+                    <Trash2 size={16} />
+                  </Button>
                 </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span>Nitrogen:</span>
-                    <span>{device.readings.nitrogen.toFixed(1)}%</span>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <div className="text-sm font-medium">Nitrogen</div>
+                    <div className="text-sm">
+                      {device.readings.nitrogen.toFixed(1)}%
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span>Phosphorus:</span>
-                    <span>{device.readings.phosphorus.toFixed(1)}%</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Potassium:</span>
-                    <span>{device.readings.potassium.toFixed(1)}%</span>
-                  </div>
+                  <ThresholdProgressBar
+                    value={device.readings.nitrogen}
+                    min={thresholds.nitrogen.min}
+                    max={thresholds.nitrogen.max}
+                    color="bg-blue-500"
+                  />
                 </div>
 
-                <div className="space-y-4">
-                  <div>
-                    <Label>Nitrogen Gate</Label>
-                    <Button
-                      variant={
-                        device.nitrogenGate === "open"
-                          ? "destructive"
-                          : "default"
-                      }
-                      className="w-full mt-2"
-                      onClick={() => toggleNitrogenGate(device.id)}
-                    >
-                      {device.nitrogenGate === "open"
-                        ? "Close Gate"
-                        : "Open Gate"}
-                    </Button>
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <div className="text-sm font-medium">Phosphorus</div>
+                    <div className="text-sm">
+                      {device.readings.phosphorus.toFixed(1)}%
+                    </div>
                   </div>
-
-                  <div>
-                    <Label>Release Timer (hours)</Label>
-                    <Select
-                      value={device.nitrogenTimer?.toString() || ""}
-                      onValueChange={(value) =>
-                        updateNitrogenTimer(device.id, parseInt(value))
-                      }
-                    >
-                      <SelectTrigger className="mt-2">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {[12, 24, 48, 72].map((hours) => (
-                          <SelectItem key={hours} value={hours.toString()}>
-                            {hours} hours
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  <ThresholdProgressBar
+                    value={device.readings.phosphorus}
+                    min={thresholds.phosphorus.min}
+                    max={thresholds.phosphorus.max}
+                    color="bg-green-500"
+                  />
                 </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
+
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <div className="text-sm font-medium">Potassium</div>
+                    <div className="text-sm">
+                      {device.readings.potassium.toFixed(1)}%
+                    </div>
+                  </div>
+                  <ThresholdProgressBar
+                    value={device.readings.potassium}
+                    min={thresholds.potassium.min}
+                    max={thresholds.potassium.max}
+                    color="bg-purple-500"
+                  />
+                </div>
+
+                <div className="flex justify-between items-center pt-3 border-t">
+                  <div className="text-sm font-medium">Nutrient Gate</div>
+                  <Button
+                    size="sm"
+                    variant={
+                      device.nitrogenGate === "open" ? "default" : "outline"
+                    }
+                    onClick={() => toggleGate(device.id, device.nitrogenGate)}
+                    disabled={gateMode === "auto"}
+                  >
+                    {device.nitrogenGate === "open" ? "Open" : "Closed"}
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+
+        {devices.length === 0 && (
+          <div className="col-span-full text-center py-10">
+            <p className="text-muted-foreground mb-4">
+              No devices found. Add your first device to get started.
+            </p>
+            <Button onClick={() => setIsDialogOpen(true)}>Add Device</Button>
+          </div>
+        )}
+      </div>
+
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add New Device</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="device-name">Device Name</Label>
+              <Input
+                id="device-name"
+                placeholder="Enter device name"
+                value={newDeviceName}
+                onChange={(e) => setNewDeviceName(e.target.value)}
+              />
+            </div>
+            <Button
+              className="w-full"
+              onClick={handlePairDevice}
+              disabled={isPairing || !newDeviceName.trim()}
+            >
+              {isPairing ? "Pairing..." : "Pair Device"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { LayoutDashboard, Leaf, Settings, LogOut } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -44,6 +45,21 @@ export function MainSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const supabase = createClientComponentClient();
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Fetch the current user when component mounts
+    const fetchUser = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user?.email) {
+        setUserEmail(user.email);
+      }
+    };
+
+    fetchUser();
+  }, [supabase]);
 
   const handleSignOut = async () => {
     try {
@@ -54,6 +70,16 @@ export function MainSidebar() {
       toast.error("Error signing out");
     }
   };
+
+  // Get first letter of email for avatar
+  const userInitial = userEmail ? userEmail[0].toUpperCase() : "U";
+
+  // Display email or truncate if too long
+  const displayEmail = userEmail
+    ? userEmail.length > 20
+      ? userEmail.substring(0, 17) + "..."
+      : userEmail
+    : "User";
 
   return (
     <Sidebar>
@@ -100,10 +126,12 @@ export function MainSidebar() {
             <Button variant="ghost" className="w-full justify-start gap-2 px-2">
               <div className="flex items-center gap-2">
                 <div className="h-8 w-8 rounded-full bg-secondary flex items-center justify-center">
-                  <span className="text-sm font-medium">U</span>
+                  <span className="text-sm font-medium">
+                    {userInitial ? userInitial : "U"}
+                  </span>
                 </div>
                 <div className="flex flex-col items-start text-sm">
-                  <span className="font-medium">User</span>
+                  <span className="font-medium">{displayEmail}</span>
                   <span className="text-xs text-muted-foreground">
                     Manage Account
                   </span>

@@ -46,7 +46,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   }, [router, supabase.auth]);
 
   if (isLoading) {
-    return null; // Or a loading spinner
+    return null;
   }
 
   return <>{children}</>;

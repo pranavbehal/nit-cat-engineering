@@ -41,7 +41,6 @@ export default function DashboardPage() {
   const [selectedGroup, setSelectedGroup] = useState<string>("all");
   const supabase = createClientComponentClient();
 
-  // Fetch devices from database
   useEffect(() => {
     async function fetchDevices() {
       const devices = await getDevices();
@@ -51,18 +50,14 @@ export default function DashboardPage() {
     fetchDevices();
   }, []);
 
-  // Fix the chart to start with just one data point and grow over time
   useEffect(() => {
     if (devices.length === 0) return;
 
-    // Try to get existing chart data
     const existingChart = getChartData();
 
-    // If we have existing data, use it
     if (existingChart.length > 0) {
       setChartData(existingChart);
     } else {
-      // Otherwise initialize with one point
       const now = new Date();
       const initialPoint = {
         time: now.toLocaleTimeString([], {
@@ -83,14 +78,11 @@ export default function DashboardPage() {
       updateChartData([initialPoint]);
     }
 
-    // Update devices and chart simultaneously
     const interval = setInterval(() => {
       setDevices((currentDevices) => {
         const updatedDevices = currentDevices.map((device, index) => {
           const thresholds = getThresholds();
 
-          // Make readings tend toward 85% of threshold max (below but close)
-          // First device occasionally goes higher to trigger alerts
           const tendency = index === 0 ? 0.95 : 0.85;
 
           const targetNitrogen = thresholds.nitrogen.max * tendency;
@@ -104,7 +96,6 @@ export default function DashboardPage() {
                 0,
                 Math.min(
                   100,
-                  // Move toward target with drift + small randomness
                   device.readings.nitrogen +
                     (targetNitrogen - device.readings.nitrogen) * 0.1 +
                     (Math.random() - 0.5) * 2
@@ -154,11 +145,7 @@ export default function DashboardPage() {
             ) / updatedDevices.length;
 
           const newPoint = {
-            time: new Date().toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-              second: "2-digit",
-            }),
+            time: new Date().toISOString(),
             nitrogen: avgNitrogen,
             phosphorus: avgPhosphorus,
             potassium: avgPotassium,
@@ -168,11 +155,10 @@ export default function DashboardPage() {
             prev.length >= 24
               ? [...prev.slice(1), newPoint]
               : [...prev, newPoint];
-          updateChartData(updatedChart); // Update storage
+          updateChartData(updatedChart);
           return updatedChart;
         });
 
-        // Check thresholds and show alerts
         const thresholds = getThresholds();
         const { exceeded, alerts } = checkThresholds(
           updatedDevices[0],
@@ -182,7 +168,7 @@ export default function DashboardPage() {
         if (exceeded) {
           alerts.forEach((alert) => {
             toast.warning(`${updatedDevices[0].name}: ${alert}`, {
-              id: `${updatedDevices[0].id}-${alert}`, // Prevent duplicates
+              id: `${updatedDevices[0].id}-${alert}`,
               duration: 5000,
             });
           });
@@ -195,10 +181,8 @@ export default function DashboardPage() {
     return () => clearInterval(interval);
   }, [devices.length]);
 
-  // Add this function to format numbers
   const formatNumber = (num: number) => Number(num.toFixed(1));
 
-  // Create filtered devices array
   const filteredDevices =
     selectedGroup === "all"
       ? devices
@@ -208,7 +192,6 @@ export default function DashboardPage() {
         )
       : devices.filter((device) => device.group === selectedGroup);
 
-  // Add these computed values
   const averageNitrogen = formatNumber(
     filteredDevices.reduce((acc, dev) => acc + dev.readings.nitrogen, 0) /
       filteredDevices.length
@@ -221,6 +204,54 @@ export default function DashboardPage() {
     filteredDevices.reduce((acc, dev) => acc + dev.readings.potassium, 0) /
       filteredDevices.length
   );
+
+  const calculateYAxisDomain = (data: any[]) => {
+    if (!data || data.length === 0) return [0, 100];
+
+    let minValue = 100;
+    let maxValue = 0;
+
+    data.forEach((point) => {
+      minValue = Math.min(
+        minValue,
+        point.nitrogen,
+        point.phosphorus,
+        point.potassium
+      );
+      maxValue = Math.max(
+        maxValue,
+        point.nitrogen,
+        point.phosphorus,
+        point.potassium
+      );
+    });
+
+    const range = maxValue - minValue;
+    const padding = Math.max(range * 0.1, 5);
+
+    let yMin = Math.max(0, Math.floor(minValue - padding));
+    let yMax = Math.min(100, Math.ceil(maxValue + padding));
+
+    if (yMax - yMin < 20) {
+      const middle = (yMin + yMax) / 2;
+      yMin = Math.max(0, Math.floor(middle - 10));
+      yMax = Math.min(100, Math.ceil(middle + 10));
+    }
+
+    return [yMin, yMax];
+  };
+
+  const formatTime = (time: string) => {
+    try {
+      const date = new Date(time);
+      return date.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch (e) {
+      return time;
+    }
+  };
 
   if (devices.length === 0) {
     return (
@@ -245,7 +276,7 @@ export default function DashboardPage() {
   return (
     <div className="p-6 space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold">Dashboard</h1>
+        <h1 className="text-3xl font-bold mt-2">Dashboard</h1>
         <div className="space-x-2">
           <Button
             variant="outline"
@@ -253,10 +284,8 @@ export default function DashboardPage() {
               exportDeviceData(devices);
               toast.success("Device data exported to CSV");
             }}
-            className="flex items-center gap-2"
           >
-            <Download size={16} />
-            Export Devices
+            <Download className="mr-1 h-4 w-4" /> Export Devices
           </Button>
           <Button
             variant="outline"
@@ -264,10 +293,8 @@ export default function DashboardPage() {
               exportChartData(chartData);
               toast.success("Chart data exported to CSV");
             }}
-            className="flex items-center gap-2"
           >
-            <Download size={16} />
-            Export Chart
+            <Download className="mr-1 h-4 w-4" /> Export Chart
           </Button>
         </div>
       </div>
@@ -343,28 +370,84 @@ export default function DashboardPage() {
       {/* Device Cards */}
       <div className="grid gap-4 md:grid-cols-3">
         {filteredDevices.map((device) => (
-          <Card key={device.id}>
-            <CardHeader>
-              <CardTitle className="flex justify-between">
-                {device.name}
-                <span
-                  className={`px-2 py-1 text-sm rounded-full ${
-                    device.status === "online"
-                      ? "bg-green-100 text-green-800"
-                      : "bg-red-100 text-red-800"
-                  }`}
-                >
-                  {device.status}
-                </span>
-              </CardTitle>
+          <Card key={device.id} className="overflow-hidden">
+            <CardHeader className="pb-3">
+              <div className="flex justify-between items-center">
+                <CardTitle className="text-lg">{device.name}</CardTitle>
+                <div className="text-sm text-muted-foreground">
+                  {device.group || "Uncategorized"}
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="space-y-2">
-                <div>Nitrogen: {formatNumber(device.readings.nitrogen)}%</div>
-                <div>
-                  Phosphorus: {formatNumber(device.readings.phosphorus)}%
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <div className="text-xs font-medium mb-1">Nitrogen</div>
+                    <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-blue-500"
+                        style={{
+                          width: `${Math.min(
+                            100,
+                            (device.readings.nitrogen / 100) * 100
+                          )}%`,
+                        }}
+                      ></div>
+                    </div>
+                    <div className="text-xs mt-1">
+                      {device.readings.nitrogen.toFixed(1)}%
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium mb-1">Phosphorus</div>
+                    <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-green-500"
+                        style={{
+                          width: `${Math.min(
+                            100,
+                            (device.readings.phosphorus / 100) * 100
+                          )}%`,
+                        }}
+                      ></div>
+                    </div>
+                    <div className="text-xs mt-1">
+                      {device.readings.phosphorus.toFixed(1)}%
+                    </div>
+                  </div>
                 </div>
-                <div>Potassium: {formatNumber(device.readings.potassium)}%</div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <div className="text-xs font-medium mb-1">Potassium</div>
+                    <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-purple-500"
+                        style={{
+                          width: `${Math.min(
+                            100,
+                            (device.readings.potassium / 100) * 100
+                          )}%`,
+                        }}
+                      ></div>
+                    </div>
+                    <div className="text-xs mt-1">
+                      {device.readings.potassium.toFixed(1)}%
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-end">
+                    <div
+                      className={`px-2 py-1 text-xs rounded-full ${
+                        device.nitrogenGate === "open"
+                          ? "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100"
+                          : "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"
+                      }`}
+                    >
+                      Gate: {device.nitrogenGate === "open" ? "Open" : "Closed"}
+                    </div>
+                  </div>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -377,21 +460,28 @@ export default function DashboardPage() {
           <CardTitle>24-Hour NPK Levels</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="h-[400px]">
+          <div className="h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData}>
+              <LineChart
+                data={chartData}
+                margin={{ top: 5, right: 20, left: 20, bottom: 5 }}
+              >
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis
                   dataKey="time"
-                  angle={-45}
+                  tickFormatter={(time) => formatTime(time)}
+                  tick={{ fontSize: 12 }}
                   textAnchor="end"
                   height={60}
-                  interval={0} // Show all labels
-                  minTickGap={15} // Minimum gap between ticks
+                  interval={0}
+                  minTickGap={15}
                 />
                 <YAxis
-                  domain={[0, 100]}
-                  ticks={[0, 25, 50, 75, 100]}
+                  domain={calculateYAxisDomain(chartData)}
+                  ticks={[...Array(5)].map((_, i) => {
+                    const [min, max] = calculateYAxisDomain(chartData);
+                    return Math.round(min + (max - min) * (i / 4));
+                  })}
                   label={{
                     value: "NPK Levels (%)",
                     angle: -90,
