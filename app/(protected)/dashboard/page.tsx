@@ -49,16 +49,29 @@ export default function DashboardPage() {
 
   useEffect(() => {
     async function fetchDevices() {
+      // Get current user ID first
+      const { data: userData } = await supabase.auth.getUser();
+      const userId = userData?.user?.id;
+      
+      if (!userId) {
+        console.error('No authenticated user found');
+        return;
+      }
+      
       // First check localStorage for devices with gate states
       const storedDevices = localStorage.getItem(DEVICES_STORAGE_KEY);
       let initialDevices = [];
       
       if (storedDevices) {
         try {
-          initialDevices = JSON.parse(storedDevices);
-          if (initialDevices.length > 0) {
+          const allDevices = JSON.parse(storedDevices) as Device[];
+          // Filter to only show current user's devices
+          const userDevices = allDevices.filter((device: Device) => device.user_id === userId);
+          
+          if (userDevices.length > 0) {
             // Use devices from localStorage with their gate states preserved
-            setDevices(initialDevices);
+            setDevices(userDevices);
+            initialDevices = userDevices;
           }
         } catch (e) {
           console.error('Error parsing stored devices:', e);
@@ -76,7 +89,7 @@ export default function DashboardPage() {
     }
 
     fetchDevices();
-  }, []);
+  }, [supabase.auth]); // Add supabase.auth as a dependency
 
   useEffect(() => {
     if (devices.length === 0) return;

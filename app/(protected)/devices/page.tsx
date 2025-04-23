@@ -69,44 +69,50 @@ export default function DevicesPage() {
   useEffect(() => {
     async function fetchData() {
       try {
+        // Get current user ID
+        const { data: userData } = await supabase.auth.getUser();
+        const userId = userData?.user?.id;
+        
+        if (!userId) {
+          console.error('No authenticated user found');
+          return;
+        }
+        
         // Check localStorage first for devices with gate states
         const storedDevices = localStorage.getItem(DEVICES_STORAGE_KEY);
-        let initialDevices = [];
+        let initialDevices: Device[] = [];
         
         if (storedDevices) {
           try {
-            initialDevices = JSON.parse(storedDevices);
-            if (initialDevices.length > 0) {
-              // Use stored devices with their gate states
-              setDevices(initialDevices);
+            const allDevices = JSON.parse(storedDevices) as Device[];
+            // Filter to only show current user's devices
+            const userDevices = allDevices.filter((device: Device) => device.user_id === userId);
+            
+            if (userDevices.length > 0) {
+              setDevices(userDevices);
+              initialDevices = userDevices;
             }
           } catch (e) {
             console.error('Error parsing stored devices:', e);
           }
         }
         
-        // If no stored devices or parsing failed, fetch from getDevices
         if (initialDevices.length === 0) {
-          // Get user devices
-          const devices = await getDevices();
+          const devices = await getDevices(); // getDevices already filters by user_id
           setDevices(devices);
         }
         
-        // Get gate settings
         const settings = await getGateSettings();
         setGateMode(settings.mode);
         
-        // Get user profile
         const profile = await getUserProfile();
         setUserProfile(profile);
         
-        // Get thresholds for the first device if available
         if (initialDevices.length > 0 || devices.length > 0) {
           const deviceId = initialDevices.length > 0 ? initialDevices[0].id : devices[0].id;
           const deviceThresholds = await getThresholds(deviceId);
           setThresholds(deviceThresholds);
         } else {
-          // Otherwise get default thresholds
           const defaultThresholds = await getThresholds();
           setThresholds(defaultThresholds);
         }
@@ -116,10 +122,10 @@ export default function DevicesPage() {
     }
 
     fetchData();
-  }, []);
+  }, [supabase.auth]); // Add supabase.auth as a dependency
 
   useEffect(() => {
-    // Skip if no devices
+    // Skip if no devices or gate mode changes
     if (devices.length === 0) return;
 
     // Create interval for simulation

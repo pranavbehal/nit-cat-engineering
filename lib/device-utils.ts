@@ -42,11 +42,9 @@ export function initializeDeviceWithReadings(dbDevice: any): Device {
     id: dbDevice.id,
     name: dbDevice.name || 'Unnamed Device',
     status: 'online',
-    // Load gate state from database if available, default to closed
     nitrogenGate: (dbDevice.nitrogen_gate === 'open' || dbDevice.nitrogen_gate === 'closed') 
       ? dbDevice.nitrogen_gate as 'open' | 'closed'
       : 'closed',
-    // Use group_name from database if available, fallback to 'group' field or 'Uncategorized'
     group: dbDevice.group_name || dbDevice.group || 'Uncategorized',
     readings: {
       nitrogen: initialReadings.nitrogen,
@@ -74,7 +72,6 @@ export function getDevices(): Promise<Device[]> {
       return Promise.resolve([]);
     }
     
-    // First check if we have devices with gate states in localStorage
     const storageKey = DEVICES_STORAGE_KEY;
     const storedDevices = localStorage.getItem(storageKey);
     let localDevices: Device[] = [];
@@ -82,19 +79,20 @@ export function getDevices(): Promise<Device[]> {
     if (storedDevices) {
       try {
         localDevices = JSON.parse(storedDevices);
-        // If we have stored devices with gate states, use those
         if (localDevices.length > 0) {
-          return localDevices;
+          // Filter to only show current user's devices from localStorage
+          const userDevices = localDevices.filter(device => device.user_id === userId);
+          return userDevices;
         }
       } catch (e) {
         console.error('Error parsing stored devices:', e);
       }
     }
     
-    // If no localStorage or parsing failed, fetch from database
     return supabase
       .from("devices")
       .select("*")
+      .eq("user_id", userId) // Only get devices for the current user
       .order("created_at", { ascending: false })
       .then(({ data: dbDevices, error }) => {
         if (error || !dbDevices) {
@@ -103,7 +101,6 @@ export function getDevices(): Promise<Device[]> {
 
         const devices = dbDevices.map(initializeDeviceWithReadings);
 
-        // Save to localStorage with a consistent key for all pages
         if (isClient) {
           localStorage.setItem(DEVICES_STORAGE_KEY, JSON.stringify(devices));
         }
@@ -115,7 +112,6 @@ export function getDevices(): Promise<Device[]> {
 export async function updateDevices(devices: Device[]) {
   if (!isClient) return;
   
-  // Always save to localStorage with a consistent key for all pages
   localStorage.setItem(DEVICES_STORAGE_KEY, JSON.stringify(devices));
   
   const supabase = createClientComponentClient();
@@ -124,17 +120,14 @@ export async function updateDevices(devices: Device[]) {
   
   if (!userId) return;
   
-  // Update each device in the database (but not the gate state)
   for (const device of devices) {
     try {
-      // Only update devices that belong to this user
       if (device.user_id === userId) {
         await supabase
           .from('devices')
           .update({
             name: device.name,
             group_name: device.group,
-            // Removed nitrogen_gate to avoid database errors
             updated_at: new Date().toISOString()
           })
           .eq('id', device.id);
@@ -148,7 +141,6 @@ export async function updateDevices(devices: Device[]) {
 export async function getChartData(deviceId?: string): Promise<any[]> {
   if (!isClient) return [];
 
-  // Try to get readings from the database if a device ID is provided
   if (deviceId) {
     const supabase = createClientComponentClient();
     try {
@@ -172,7 +164,6 @@ export async function getChartData(deviceId?: string): Promise<any[]> {
     }
   }
 
-  // Fall back to localStorage if database fetch fails or no deviceId
   const storageKey = deviceId ? `${CHART_DATA_STORAGE_KEY}-${deviceId}` : CHART_DATA_STORAGE_KEY;
   const storedData = localStorage.getItem(storageKey);
   return storedData ? JSON.parse(storedData) : [];
@@ -181,7 +172,6 @@ export async function getChartData(deviceId?: string): Promise<any[]> {
 export async function updateChartData(chartData: any[], deviceId?: string) {
   if (!isClient) return;
 
-  // Store in localStorage for caching purposes
   const storageKey = deviceId ? `${CHART_DATA_STORAGE_KEY}-${deviceId}` : CHART_DATA_STORAGE_KEY;
   localStorage.setItem(storageKey, JSON.stringify(chartData));
 
@@ -498,15 +488,11 @@ export async function updateDeviceGateAuto(device: Device): Promise<Device> {
     (shouldOpen && device.nitrogenGate === "closed") ||
     (!shouldOpen && device.nitrogenGate === "open")
   ) {
-    // Ensure nitrogenGate is explicitly typed as 'open' | 'closed'
     const gateState = shouldOpen ? "open" as const : "closed" as const;
     const updatedDevice = {
       ...device,
       nitrogenGate: gateState
     };
-    
-    // Skip database updates and only use localStorage for gate states
-    // This is stored in the same device object that's saved to localStorage
     
     return updatedDevice;
   }
