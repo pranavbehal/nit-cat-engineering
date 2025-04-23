@@ -47,13 +47,19 @@ export default function ProfilePage() {
         const profile = await getUserProfile();
         setUserProfile(profile);
         
+        // Set theme from profile
+        if (profile.theme) {
+          setTheme(profile.theme);
+        }
+        
         // Load thresholds - use the defaults initially to avoid undefined errors
         const loadedThresholds = await getThresholds();
         setThresholds(loadedThresholds);
         
-        // Load gate settings
-        const settings = await getGateSettings();
-        setGateSetting(settings.mode);
+        // Set gate control mode from profile
+        if (profile.gate_auto_control !== undefined) {
+          setGateSetting(profile.gate_auto_control ? "auto" : "manual");
+        }
       } catch (error) {
         console.error('Error loading profile settings:', error);
         toast.error('Failed to load settings');
@@ -63,7 +69,7 @@ export default function ProfilePage() {
     }
     
     loadSettings();
-  }, []);
+  }, [setTheme]);
 
   const handleSave = async () => {
     try {
@@ -104,7 +110,16 @@ export default function ProfilePage() {
                 <Button
                   variant={theme === "light" ? "default" : "outline"}
                   size="sm"
-                  onClick={() => setTheme("light")}
+                  onClick={async () => {
+                    setTheme("light");
+                    if (userProfile) {
+                      try {
+                        await updateUserProfile({ theme: "light" });
+                      } catch (error) {
+                        console.error('Failed to save theme preference:', error);
+                      }
+                    }
+                  }}
                   className="w-24"
                 >
                   <Sun className="h-4 w-4 mr-1" /> Light
@@ -112,7 +127,16 @@ export default function ProfilePage() {
                 <Button
                   variant={theme === "dark" ? "default" : "outline"}
                   size="sm"
-                  onClick={() => setTheme("dark")}
+                  onClick={async () => {
+                    setTheme("dark");
+                    if (userProfile) {
+                      try {
+                        await updateUserProfile({ theme: "dark" });
+                      } catch (error) {
+                        console.error('Failed to save theme preference:', error);
+                      }
+                    }
+                  }}
                   className="w-24"
                 >
                   <Moon className="h-4 w-4 mr-1" /> Dark
@@ -120,7 +144,16 @@ export default function ProfilePage() {
                 <Button
                   variant={theme === "system" ? "default" : "outline"}
                   size="sm"
-                  onClick={() => setTheme("system")}
+                  onClick={async () => {
+                    setTheme("system");
+                    if (userProfile) {
+                      try {
+                        await updateUserProfile({ theme: "system" });
+                      } catch (error) {
+                        console.error('Failed to save theme preference:', error);
+                      }
+                    }
+                  }}
                   className="w-28"
                 >
                   <Monitor className="h-4 w-4 mr-1" /> System
@@ -284,7 +317,13 @@ export default function ProfilePage() {
                   try {
                     const newMode = checked ? "auto" : "manual";
                     setGateSetting(newMode);
-                    await updateGateSettings({ mode: newMode });
+                    
+                    // Update both the gate settings and user profile
+                    await Promise.all([
+                      updateGateSettings({ mode: newMode }),
+                      updateUserProfile({ gate_auto_control: checked })
+                    ]);
+                    
                     toast.success(`Gate control set to ${newMode} mode`);
                   } catch (error) {
                     console.error('Error updating gate setting:', error);
@@ -296,91 +335,7 @@ export default function ProfilePage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Notification Settings</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <Label htmlFor="notifications" className="text-base">
-                  Threshold Alerts
-                </Label>
-                <p className="text-sm text-muted-foreground">
-                  Receive notifications when readings exceed your thresholds
-                </p>
-              </div>
-              <Switch
-                id="notifications"
-                checked={userProfile?.notifications_enabled || false}
-                onCheckedChange={async (checked) => {
-                  try {
-                    if (userProfile) {
-                      const updatedProfile = {
-                        ...userProfile,
-                        notifications_enabled: checked
-                      };
-                      setUserProfile(updatedProfile);
-                      
-                      // Update in database
-                      await updateUserProfile({
-                        notifications_enabled: checked
-                      });
-                      
-                      toast.success(`Notifications ${checked ? 'enabled' : 'disabled'}`);
-                    }
-                  } catch (error) {
-                    console.error('Error updating notification settings:', error);
-                    toast.error('Failed to update notification settings');
-                  }
-                }}
-              />
-            </div>
-            
-            <div className="flex items-center justify-between mt-4">
-              <div>
-                <Label htmlFor="measurement-unit" className="text-base">
-                  Measurement Unit
-                </Label>
-                <p className="text-sm text-muted-foreground">
-                  Choose how to display nutrient levels
-                </p>
-              </div>
-              <Select
-                value={userProfile?.measurement_unit || 'percent'}
-                onValueChange={async (value: "percent" | "ppm") => {
-                  try {
-                    if (userProfile) {
-                      const updatedProfile = {
-                        ...userProfile,
-                        measurement_unit: value
-                      };
-                      setUserProfile(updatedProfile);
-                      
-                      // Update in database
-                      await updateUserProfile({
-                        measurement_unit: value
-                      });
-                      
-                      toast.success(`Measurement unit updated to ${value}`);
-                    }
-                  } catch (error) {
-                    console.error('Error updating measurement unit:', error);
-                    toast.error('Failed to update measurement unit');
-                  }
-                }}
-              >
-                <SelectTrigger className="w-32">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="percent">Percent (%)</SelectItem>
-                  <SelectItem value="ppm">PPM</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </CardContent>
-        </Card>
+
 
         <div className="md:col-span-2 flex justify-end gap-2 mt-4">
           <Button variant="outline" onClick={handleReset}>

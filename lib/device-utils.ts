@@ -420,13 +420,17 @@ export interface UserProfile {
   name?: string;
   notifications_enabled: boolean;
   measurement_unit: "percent" | "ppm";
+  theme?: "light" | "dark" | "system";
+  gate_auto_control?: boolean;
   updated_at?: string;
 }
 
 const DEFAULT_PROFILE: UserProfile = {
   id: '',
   notifications_enabled: false,
-  measurement_unit: 'percent'
+  measurement_unit: 'percent',
+  theme: 'system',
+  gate_auto_control: true
 };
 
 // Get user profile from the database
@@ -452,17 +456,26 @@ export async function getUserProfile(): Promise<UserProfile> {
       .single();
     
     if (error || !data) {
-      // If profile not found, create one with default values
-      const newProfile = {
+      console.warn('Profile not found for user ID:', userId);
+      // The profile should have been created by the database trigger when the user signed up
+      // Return a default profile without attempting to create one in the database
+      return {
         ...DEFAULT_PROFILE,
         id: userId,
+        name: userData.user?.email || ''
       };
-      
-      await supabase.from('profiles').insert(newProfile);
-      return newProfile;
     }
     
-    return data as UserProfile;
+    // Return the profile with defaults for any missing fields
+    return {
+      id: data.id,
+      name: data.name,
+      notifications_enabled: data.notifications_enabled ?? false,
+      measurement_unit: (data.measurement_unit as "percent" | "ppm") || 'percent',
+      theme: (data.theme as "light" | "dark" | "system") || 'system',
+      gate_auto_control: data.gate_auto_control ?? true,
+      updated_at: data.updated_at
+    };
   } catch (error) {
     console.error('Error getting user profile:', error);
     return DEFAULT_PROFILE;
@@ -482,18 +495,24 @@ export async function updateUserProfile(profile: Partial<UserProfile>): Promise<
     
     if (!userId) return;
     
-    // Ensure the user has a profile
+    // Ensure the user has a profile by fetching it first
     await getUserProfile();
     
-    // Update the profile
-    await supabase
+    // Update the profile with the new values
+    const { error } = await supabase
       .from('profiles')
       .update({
         ...profile,
         updated_at: new Date().toISOString()
       })
       .eq('id', userId);
+    
+    if (error) {
+      console.error('Error updating profile in database:', error);
+      throw new Error(`Failed to update profile: ${error.message}`);
+    }
   } catch (error) {
     console.error('Error updating user profile:', error);
+    throw error; // Re-throw to allow proper error handling in components
   }
 }
