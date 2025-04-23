@@ -46,6 +46,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
 
+// Storage keys for local persistence
+const DEVICES_STORAGE_KEY = "nitcat-devices";
+
 interface DBDevice {
   id: string;
   name: string;
@@ -66,9 +69,28 @@ export default function DevicesPage() {
   useEffect(() => {
     async function fetchData() {
       try {
-        // Get user devices
-        const devices = await getDevices();
-        setDevices(devices);
+        // Check localStorage first for devices with gate states
+        const storedDevices = localStorage.getItem(DEVICES_STORAGE_KEY);
+        let initialDevices = [];
+        
+        if (storedDevices) {
+          try {
+            initialDevices = JSON.parse(storedDevices);
+            if (initialDevices.length > 0) {
+              // Use stored devices with their gate states
+              setDevices(initialDevices);
+            }
+          } catch (e) {
+            console.error('Error parsing stored devices:', e);
+          }
+        }
+        
+        // If no stored devices or parsing failed, fetch from getDevices
+        if (initialDevices.length === 0) {
+          // Get user devices
+          const devices = await getDevices();
+          setDevices(devices);
+        }
         
         // Get gate settings
         const settings = await getGateSettings();
@@ -79,8 +101,9 @@ export default function DevicesPage() {
         setUserProfile(profile);
         
         // Get thresholds for the first device if available
-        if (devices.length > 0) {
-          const deviceThresholds = await getThresholds(devices[0].id);
+        if (initialDevices.length > 0 || devices.length > 0) {
+          const deviceId = initialDevices.length > 0 ? initialDevices[0].id : devices[0].id;
+          const deviceThresholds = await getThresholds(deviceId);
           setThresholds(deviceThresholds);
         } else {
           // Otherwise get default thresholds
@@ -96,8 +119,10 @@ export default function DevicesPage() {
   }, []);
 
   useEffect(() => {
+    // Skip if no devices
     if (devices.length === 0) return;
 
+    // Create interval for simulation
     const interval = setInterval(async () => {
       try {
         setDevices((currentDevices) => {
@@ -157,15 +182,12 @@ export default function DevicesPage() {
             return updatedDevice;
           });
 
-          // Handle all the promises
           Promise.all(updatedDevicesPromises)
             .then(updatedDevices => {
               updateDevices(updatedDevices);
             })
             .catch(error => console.error('Error updating devices:', error));
 
-          // Return the current state until promises resolve
-          // This avoids TypeScript issues with returning promises in setState
           return currentDevices.map(device => {
             const gateEffect = device.nitrogenGate === "open" ? 0.8 : -0.8;
 
@@ -208,6 +230,7 @@ export default function DevicesPage() {
       }
     }, 1000); // Update every 1 second
 
+    // Cleanup on unmount
     return () => clearInterval(interval);
   }, [devices, gateMode]);
 
@@ -232,17 +255,21 @@ export default function DevicesPage() {
       return;
     }
 
-    const newState = currentState === "open" ? "closed" : "open";
+    // Properly type the new state
+    const newState = currentState === "open" ? "closed" as const : "open" as const;
 
-    setDevices(
-      devices.map((device) => {
-        if (device.id === deviceId) {
-          toast.success(`${device.name} gate manually ${newState}`);
-          return { ...device, nitrogenGate: newState };
-        }
-        return device;
-      })
-    );
+    // Update local state only
+    const updatedDevices = devices.map((device) => {
+      if (device.id === deviceId) {
+        toast.success(`${device.name} gate manually ${newState}`);
+        return { ...device, nitrogenGate: newState };
+      }
+      return device;
+    });
+
+    // Update state and local storage (no database)
+    setDevices(updatedDevices);
+    localStorage.setItem(DEVICES_STORAGE_KEY, JSON.stringify(updatedDevices));
   };
 
   const handlePairDevice = async () => {
@@ -284,65 +311,62 @@ export default function DevicesPage() {
     }
   };
 
-  const handleRemoveDevice = async (deviceId: string) => {
-    const confirmed = window.confirm(
-      "Are you sure you want to remove this device?"
-    );
-    if (!confirmed) return;
+  const handleDeleteDevice = async (deviceId: string, deviceName: string) => {
+    if (window.confirm(`Are you sure you want to delete ${deviceName}?`)) {
+      try {
+        // Delete from Supabase first
+        const { error } = await supabase
+          .from("devices")
+          .delete()
+          .eq("id", deviceId);
 
+        if (error) throw error;
+        
+        // Then update local state
+        const updatedDevices = devices.filter((device) => device.id !== deviceId);
+        setDevices(updatedDevices);
+        updateDevices(updatedDevices);
+        
+        toast.success(`Device "${deviceName}" has been deleted`);
+      } catch (error) {
+        console.error('Error deleting device:', error);
+        toast.error(`Failed to delete ${deviceName}. Please try again.`);
+      }
+    }
+  };
+
+  // Using the same function for all group change operations
+  const handleGroupChange = async (deviceId: string, group: string) => {
     try {
+      // Update the device group in Supabase
       const { error } = await supabase
         .from("devices")
-        .delete()
+        .update({ group_name: group })
         .eq("id", deviceId);
-
+      
       if (error) throw error;
-
-      setDevices((prev) => prev.filter((device) => device.id !== deviceId));
-      toast.success("Device removed successfully");
-    } catch (error) {
-      toast.error("Failed to remove device");
-    }
-  };
-
-  const updateDeviceGroup = (deviceId: string, group: string) => {
-    setDevices((currentDevices) => {
-      const updatedDevices = currentDevices.map((device) =>
-        device.id === deviceId ? { ...device, group } : device
-      );
+      
+      // Update local state
+      const updatedDevices = devices.map((device) => {
+        if (device.id === deviceId) {
+          return { ...device, group };
+        }
+        return device;
+      });
+      
+      setDevices(updatedDevices);
       updateDevices(updatedDevices);
-      return updatedDevices;
-    });
-    toast.success(`Device moved to ${group}`);
-  };
-
-  const handleDeleteDevice = (deviceId: string, deviceName: string) => {
-    if (window.confirm(`Are you sure you want to delete ${deviceName}?`)) {
-      setDevices(devices.filter((device) => device.id !== deviceId));
-      updateDevices(devices.filter((device) => device.id !== deviceId));
-      toast.success(`Device "${deviceName}" has been deleted`);
+      
+      toast.success(`Device moved to ${group}`);
+    } catch (error) {
+      console.error('Error updating device group:', error);
+      toast.error(`Failed to move device to ${group}. Please try again.`);
     }
   };
 
-  const handleGroupChange = (deviceId: string, group: string) => {
-    setDevices(
-      devices.map((device) => {
-        if (device.id === deviceId) {
-          return { ...device, group };
-        }
-        return device;
-      })
-    );
-    updateDevices(
-      devices.map((device) => {
-        if (device.id === deviceId) {
-          return { ...device, group };
-        }
-        return device;
-      })
-    );
-    toast.success(`Device moved to ${group}`);
-  };
+  // Alias functions for backward compatibility
+  const handleRemoveDevice = handleDeleteDevice;
+  const updateDeviceGroup = handleGroupChange;
 
   const ThresholdProgressBar = ({
     value,

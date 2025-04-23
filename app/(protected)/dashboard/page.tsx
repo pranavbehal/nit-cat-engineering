@@ -25,6 +25,7 @@ import {
   checkThresholds,
   getUserProfile,
   UserProfile,
+  getGateSettings,
 } from "@/lib/device-utils";
 import {
   Select,
@@ -37,6 +38,9 @@ import { exportDeviceData, exportChartData } from "@/lib/export-utils";
 import { Download } from "lucide-react";
 import { toast } from "sonner";
 
+// Storage key for device persistence
+const DEVICES_STORAGE_KEY = "nitcat-devices";
+
 export default function DashboardPage() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [chartData, setChartData] = useState<any[]>([]);
@@ -45,8 +49,30 @@ export default function DashboardPage() {
 
   useEffect(() => {
     async function fetchDevices() {
-      const devices = await getDevices();
-      setDevices(devices);
+      // First check localStorage for devices with gate states
+      const storedDevices = localStorage.getItem(DEVICES_STORAGE_KEY);
+      let initialDevices = [];
+      
+      if (storedDevices) {
+        try {
+          initialDevices = JSON.parse(storedDevices);
+          if (initialDevices.length > 0) {
+            // Use devices from localStorage with their gate states preserved
+            setDevices(initialDevices);
+          }
+        } catch (e) {
+          console.error('Error parsing stored devices:', e);
+        }
+      }
+      
+      // If no localStorage data or parsing failed, fetch from getDevices
+      if (initialDevices.length === 0) {
+        const devices = await getDevices();
+        setDevices(devices);
+      }
+      
+      // Also load gate settings to ensure consistency
+      await getGateSettings();
     }
 
     fetchDevices();
@@ -133,8 +159,10 @@ export default function DashboardPage() {
           };
         });
 
-        // Update devices in storage
-        updateDevices(updatedDevices);
+        // Update devices in storage (async function now)
+        updateDevices(updatedDevices).catch(err => {
+          console.error('Error updating devices in database:', err);
+        });
 
         // Update chart data
         setChartData((prev) => {
@@ -161,6 +189,7 @@ export default function DashboardPage() {
             potassium: avgPotassium,
           };
 
+          // Update chart
           const updatedChart =
             prev.length >= 24
               ? [...prev.slice(1), newPoint]
@@ -174,7 +203,7 @@ export default function DashboardPage() {
           
           return updatedChart;
         });
-
+        
         // Check thresholds and show notifications if necessary
         if (updatedDevices.length > 0) {
           // Get the profile to check if notifications are enabled
@@ -205,16 +234,17 @@ export default function DashboardPage() {
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [devices, devices.length]);
+  }, [devices]);
 
   const formatNumber = (num: number) => Number(num.toFixed(1));
 
+  // Improve filtering to handle various group states properly
   const filteredDevices =
     selectedGroup === "all"
       ? devices
       : selectedGroup === "Uncategorized"
       ? devices.filter(
-          (device) => !device.group || device.group === "Uncategorized"
+          (device) => !device.group || device.group === "" || device.group === "Uncategorized"
         )
       : devices.filter((device) => device.group === selectedGroup);
 
