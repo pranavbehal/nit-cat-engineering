@@ -23,6 +23,8 @@ import {
   DEFAULT_GROUPS,
   getThresholds,
   checkThresholds,
+  getUserProfile,
+  UserProfile,
 } from "@/lib/device-utils";
 import {
   Select,
@@ -53,41 +55,49 @@ export default function DashboardPage() {
   useEffect(() => {
     if (devices.length === 0) return;
 
-    const existingChart = getChartData();
+    async function loadChartData() {
+      try {
+        // Get chart data for the first device or general chart data if no devices
+        const deviceId = devices.length > 0 ? devices[0].id : undefined;
+        const existingChart = await getChartData(deviceId);
 
-    if (existingChart.length > 0) {
-      setChartData(existingChart);
-    } else {
-      const now = new Date();
-      const initialPoint = {
-        time: now.toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-        nitrogen:
-          devices.reduce((sum, dev) => sum + dev.readings.nitrogen, 0) /
-          devices.length,
-        phosphorus:
-          devices.reduce((sum, dev) => sum + dev.readings.phosphorus, 0) /
-          devices.length,
-        potassium:
-          devices.reduce((sum, dev) => sum + dev.readings.potassium, 0) /
-          devices.length,
-      };
-      setChartData([initialPoint]);
-      updateChartData([initialPoint]);
+        if (existingChart.length > 0) {
+          setChartData(existingChart);
+        } else {
+          const now = new Date();
+          const initialPoint = {
+            time: now.toISOString(),
+            nitrogen:
+              devices.reduce((sum, dev) => sum + dev.readings.nitrogen, 0) /
+              devices.length,
+            phosphorus:
+              devices.reduce((sum, dev) => sum + dev.readings.phosphorus, 0) /
+              devices.length,
+            potassium:
+              devices.reduce((sum, dev) => sum + dev.readings.potassium, 0) /
+              devices.length,
+          };
+          setChartData([initialPoint]);
+          await updateChartData([initialPoint], deviceId);
+        }
+      } catch (error) {
+        console.error('Error loading chart data:', error);
+      }
     }
+    
+    loadChartData();
 
-    const interval = setInterval(() => {
-      setDevices((currentDevices) => {
-        const updatedDevices = currentDevices.map((device, index) => {
-          const thresholds = getThresholds();
+    const interval = setInterval(async () => {
+      try {
+        const deviceThresholds = await getThresholds(devices[0]?.id);
+        
+        setDevices((currentDevices) => {
+          const updatedDevices = currentDevices.map((device, index) => {
+            const tendency = index === 0 ? 0.95 : 0.85;
 
-          const tendency = index === 0 ? 0.95 : 0.85;
-
-          const targetNitrogen = thresholds.nitrogen.max * tendency;
-          const targetPhosphorus = thresholds.phosphorus.max * tendency;
-          const targetPotassium = thresholds.potassium.max * tendency;
+            const targetNitrogen = deviceThresholds.nitrogen.max * tendency;
+            const targetPhosphorus = deviceThresholds.phosphorus.max * tendency;
+            const targetPotassium = deviceThresholds.potassium.max * tendency;
 
           return {
             ...device,
@@ -155,31 +165,47 @@ export default function DashboardPage() {
             prev.length >= 24
               ? [...prev.slice(1), newPoint]
               : [...prev, newPoint];
-          updateChartData(updatedChart);
+          
+          // Save to database asynchronously
+          if (updatedDevices.length > 0) {
+            updateChartData(updatedChart, updatedDevices[0].id)
+              .catch(error => console.error('Error updating chart data:', error));
+          }
+          
           return updatedChart;
         });
 
-        const thresholds = getThresholds();
-        const { exceeded, alerts } = checkThresholds(
-          updatedDevices[0],
-          thresholds
-        );
-
-        if (exceeded) {
-          alerts.forEach((alert) => {
-            toast.warning(`${updatedDevices[0].name}: ${alert}`, {
-              id: `${updatedDevices[0].id}-${alert}`,
-              duration: 5000,
-            });
-          });
+        // Check thresholds and show notifications if necessary
+        if (updatedDevices.length > 0) {
+          // Get the profile to check if notifications are enabled
+          getUserProfile().then((profile: UserProfile) => {
+            if (profile.notifications_enabled) {
+              const { exceeded, alerts } = checkThresholds(
+                updatedDevices[0],
+                deviceThresholds
+              );
+  
+              if (exceeded) {
+                alerts.forEach((alert) => {
+                  toast.warning(`${updatedDevices[0].name}: ${alert}`, {
+                    id: `${updatedDevices[0].id}-${alert}`,
+                    duration: 5000,
+                  });
+                });
+              }
+            }
+          }).catch((error: unknown) => console.error('Error checking profile for notifications:', error));
         }
 
-        return updatedDevices;
-      });
+          return updatedDevices;
+        });
+      } catch (error) {
+        console.error('Error updating devices:', error);
+      }
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [devices.length]);
+  }, [devices, devices.length]);
 
   const formatNumber = (num: number) => Number(num.toFixed(1));
 

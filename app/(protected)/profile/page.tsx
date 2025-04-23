@@ -21,6 +21,9 @@ import {
   ThresholdSettings,
   getGateSettings,
   updateGateSettings,
+  getUserProfile,
+  UserProfile,
+  updateUserProfile,
 } from "@/lib/device-utils";
 import { toast } from "sonner";
 import { Sun, Moon, Monitor } from "lucide-react";
@@ -31,25 +34,59 @@ export default function ProfilePage() {
     useState<ThresholdSettings>(DEFAULT_THRESHOLDS);
   const [mounted, setMounted] = useState(false);
   const [gateSetting, setGateSetting] = useState<"auto" | "manual">("auto");
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    setMounted(true);
-    setThresholds(getThresholds());
-    setGateSetting(getGateSettings().mode);
+    async function loadSettings() {
+      try {
+        setMounted(true);
+        setLoading(true);
+        
+        // Load user profile
+        const profile = await getUserProfile();
+        setUserProfile(profile);
+        
+        // Load thresholds - use the defaults initially to avoid undefined errors
+        const loadedThresholds = await getThresholds();
+        setThresholds(loadedThresholds);
+        
+        // Load gate settings
+        const settings = await getGateSettings();
+        setGateSetting(settings.mode);
+      } catch (error) {
+        console.error('Error loading profile settings:', error);
+        toast.error('Failed to load settings');
+      } finally {
+        setLoading(false);
+      }
+    }
+    
+    loadSettings();
   }, []);
 
-  const handleSave = () => {
-    updateThresholds(thresholds);
-    toast.success("Threshold settings saved");
+  const handleSave = async () => {
+    try {
+      await updateThresholds(thresholds);
+      toast.success("Threshold settings saved");
+    } catch (error) {
+      console.error('Error saving thresholds:', error);
+      toast.error('Failed to save settings');
+    }
   };
 
-  const handleReset = () => {
-    setThresholds(DEFAULT_THRESHOLDS);
-    updateThresholds(DEFAULT_THRESHOLDS);
-    toast.success("Threshold settings reset to defaults");
+  const handleReset = async () => {
+    try {
+      setThresholds(DEFAULT_THRESHOLDS);
+      await updateThresholds(DEFAULT_THRESHOLDS);
+      toast.success("Threshold settings reset to defaults");
+    } catch (error) {
+      console.error('Error resetting thresholds:', error);
+      toast.error('Failed to reset settings');
+    }
   };
 
-  if (!mounted) return null;
+  if (!mounted || loading) return <div className="container py-6 px-4 sm:px-6">Loading settings...</div>;
 
   return (
     <div className="container py-6 px-4 sm:px-6">
@@ -243,13 +280,104 @@ export default function ProfilePage() {
               <Switch
                 id="auto-gate"
                 checked={gateSetting === "auto"}
-                onCheckedChange={(checked) => {
-                  const newMode = checked ? "auto" : "manual";
-                  setGateSetting(newMode);
-                  updateGateSettings({ mode: newMode });
-                  toast.success(`Gate control set to ${newMode} mode`);
+                onCheckedChange={async (checked) => {
+                  try {
+                    const newMode = checked ? "auto" : "manual";
+                    setGateSetting(newMode);
+                    await updateGateSettings({ mode: newMode });
+                    toast.success(`Gate control set to ${newMode} mode`);
+                  } catch (error) {
+                    console.error('Error updating gate setting:', error);
+                    toast.error('Failed to update gate setting');
+                  }
                 }}
               />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Notification Settings</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label htmlFor="notifications" className="text-base">
+                  Threshold Alerts
+                </Label>
+                <p className="text-sm text-muted-foreground">
+                  Receive notifications when readings exceed your thresholds
+                </p>
+              </div>
+              <Switch
+                id="notifications"
+                checked={userProfile?.notifications_enabled || false}
+                onCheckedChange={async (checked) => {
+                  try {
+                    if (userProfile) {
+                      const updatedProfile = {
+                        ...userProfile,
+                        notifications_enabled: checked
+                      };
+                      setUserProfile(updatedProfile);
+                      
+                      // Update in database
+                      await updateUserProfile({
+                        notifications_enabled: checked
+                      });
+                      
+                      toast.success(`Notifications ${checked ? 'enabled' : 'disabled'}`);
+                    }
+                  } catch (error) {
+                    console.error('Error updating notification settings:', error);
+                    toast.error('Failed to update notification settings');
+                  }
+                }}
+              />
+            </div>
+            
+            <div className="flex items-center justify-between mt-4">
+              <div>
+                <Label htmlFor="measurement-unit" className="text-base">
+                  Measurement Unit
+                </Label>
+                <p className="text-sm text-muted-foreground">
+                  Choose how to display nutrient levels
+                </p>
+              </div>
+              <Select
+                value={userProfile?.measurement_unit || 'percent'}
+                onValueChange={async (value: "percent" | "ppm") => {
+                  try {
+                    if (userProfile) {
+                      const updatedProfile = {
+                        ...userProfile,
+                        measurement_unit: value
+                      };
+                      setUserProfile(updatedProfile);
+                      
+                      // Update in database
+                      await updateUserProfile({
+                        measurement_unit: value
+                      });
+                      
+                      toast.success(`Measurement unit updated to ${value}`);
+                    }
+                  } catch (error) {
+                    console.error('Error updating measurement unit:', error);
+                    toast.error('Failed to update measurement unit');
+                  }
+                }}
+              >
+                <SelectTrigger className="w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="percent">Percent (%)</SelectItem>
+                  <SelectItem value="ppm">PPM</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </CardContent>
         </Card>

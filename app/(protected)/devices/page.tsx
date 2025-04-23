@@ -32,6 +32,10 @@ import {
   getGateSettings,
   updateGateSettings,
   updateDeviceGateAuto,
+  updateThresholds,
+  getUserProfile,
+  UserProfile,
+  DEFAULT_THRESHOLDS,
 } from "@/lib/device-utils";
 import {
   DropdownMenu,
@@ -55,15 +59,37 @@ export default function DevicesPage() {
   const [newDeviceName, setNewDeviceName] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [gateMode, setGateMode] = useState<"auto" | "manual">("auto");
+  const [thresholds, setThresholds] = useState(DEFAULT_THRESHOLDS);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const supabase = createClientComponentClient();
-  const thresholds = getThresholds();
 
   useEffect(() => {
     async function fetchData() {
-      const devices = await getDevices();
-      setDevices(devices);
-      const settings = getGateSettings();
-      setGateMode(settings.mode);
+      try {
+        // Get user devices
+        const devices = await getDevices();
+        setDevices(devices);
+        
+        // Get gate settings
+        const settings = await getGateSettings();
+        setGateMode(settings.mode);
+        
+        // Get user profile
+        const profile = await getUserProfile();
+        setUserProfile(profile);
+        
+        // Get thresholds for the first device if available
+        if (devices.length > 0) {
+          const deviceThresholds = await getThresholds(devices[0].id);
+          setThresholds(deviceThresholds);
+        } else {
+          // Otherwise get default thresholds
+          const defaultThresholds = await getThresholds();
+          setThresholds(defaultThresholds);
+        }
+      } catch (error) {
+        console.error('Error fetching initial data:', error);
+      }
     }
 
     fetchData();
@@ -72,78 +98,129 @@ export default function DevicesPage() {
   useEffect(() => {
     if (devices.length === 0) return;
 
-    const interval = setInterval(() => {
-      setDevices((currentDevices) => {
-        const updatedDevices = currentDevices.map((device) => {
-          const thresholds = getThresholds();
+    const interval = setInterval(async () => {
+      try {
+        setDevices((currentDevices) => {
+          // Use the current thresholds state
+          const updatedDevicesPromises = currentDevices.map(async (device) => {
+            const gateEffect = device.nitrogenGate === "open" ? 0.8 : -0.8;
 
-          const gateEffect = device.nitrogenGate === "open" ? 0.8 : -0.8;
+            const updatedDevice = {
+              ...device,
+              readings: {
+                nitrogen: Math.max(
+                  0,
+                  Math.min(
+                    100,
+                    device.readings.nitrogen +
+                      gateEffect +
+                      (Math.random() - 0.5) * 1
+                  )
+                ),
+                phosphorus: Math.max(
+                  0,
+                  Math.min(
+                    100,
+                    device.readings.phosphorus +
+                      gateEffect * 0.7 +
+                      (Math.random() - 0.5) * 1
+                  )
+                ),
+                potassium: Math.max(
+                  0,
+                  Math.min(
+                    100,
+                    device.readings.potassium +
+                      gateEffect * 0.5 +
+                      (Math.random() - 0.5) * 1
+                  )
+                ),
+              },
+            };
 
-          const updatedDevice = {
-            ...device,
-            readings: {
-              nitrogen: Math.max(
-                0,
-                Math.min(
-                  100,
-                  device.readings.nitrogen +
-                    gateEffect +
-                    (Math.random() - 0.5) * 1
-                )
-              ),
-              phosphorus: Math.max(
-                0,
-                Math.min(
-                  100,
-                  device.readings.phosphorus +
-                    gateEffect * 0.7 +
-                    (Math.random() - 0.5) * 1
-                )
-              ),
-              potassium: Math.max(
-                0,
-                Math.min(
-                  100,
-                  device.readings.potassium +
-                    gateEffect * 0.5 +
-                    (Math.random() - 0.5) * 1
-                )
-              ),
-            },
-          };
+            if (gateMode === "auto") {
+              try {
+                const autoUpdatedDevice = await updateDeviceGateAuto(updatedDevice);
 
-          if (gateMode === "auto") {
-            const autoUpdatedDevice = updateDeviceGateAuto(updatedDevice);
+                if (autoUpdatedDevice.nitrogenGate !== device.nitrogenGate) {
+                  const action = autoUpdatedDevice.nitrogenGate === "open" ? "opened" : "closed";
+                  toast.info(`${device.name} gate automatically ${action}`);
+                }
 
-            if (autoUpdatedDevice.nitrogenGate !== device.nitrogenGate) {
-              toast.info(
-                `${device.name} gate automatically ${
-                  autoUpdatedDevice.nitrogenGate === "open"
-                    ? "opened"
-                    : "closed"
-                }`
-              );
+                return autoUpdatedDevice;
+              } catch (error) {
+                console.error('Error in auto-update:', error);
+                return updatedDevice;
+              }
             }
 
-            return autoUpdatedDevice;
-          }
+            return updatedDevice;
+          });
 
-          return updatedDevice;
+          // Handle all the promises
+          Promise.all(updatedDevicesPromises)
+            .then(updatedDevices => {
+              updateDevices(updatedDevices);
+            })
+            .catch(error => console.error('Error updating devices:', error));
+
+          // Return the current state until promises resolve
+          // This avoids TypeScript issues with returning promises in setState
+          return currentDevices.map(device => {
+            const gateEffect = device.nitrogenGate === "open" ? 0.8 : -0.8;
+
+            return {
+              ...device,
+              readings: {
+                nitrogen: Math.max(
+                  0,
+                  Math.min(
+                    100,
+                    device.readings.nitrogen +
+                      gateEffect +
+                      (Math.random() - 0.5) * 1
+                  )
+                ),
+                phosphorus: Math.max(
+                  0,
+                  Math.min(
+                    100,
+                    device.readings.phosphorus +
+                      gateEffect * 0.7 +
+                      (Math.random() - 0.5) * 1
+                  )
+                ),
+                potassium: Math.max(
+                  0,
+                  Math.min(
+                    100,
+                    device.readings.potassium +
+                      gateEffect * 0.5 +
+                      (Math.random() - 0.5) * 1
+                  )
+                ),
+              },
+            };
+          });
         });
-
-        updateDevices(updatedDevices);
-        return updatedDevices;
-      });
+      } catch (error) {
+        console.error('Error in update interval:', error);
+      }
     }, 1000); // Update every 1 second
 
     return () => clearInterval(interval);
   }, [devices, gateMode]);
 
-  const toggleGateMode = () => {
-    const newMode = gateMode === "auto" ? "manual" : "auto";
-    setGateMode(newMode);
-    updateGateSettings({ mode: newMode });
-    toast.success(`Gate control mode switched to ${newMode}`);
+  const toggleGateMode = async () => {
+    try {
+      const newMode = gateMode === "auto" ? "manual" : "auto";
+      setGateMode(newMode);
+      await updateGateSettings({ mode: newMode });
+      toast.success(`Gate control mode switched to ${newMode}`);
+    } catch (error) {
+      console.error('Error toggling gate mode:', error);
+      toast.error('Failed to toggle gate mode. Please try again.');
+    }
   };
 
   const toggleGate = (
@@ -315,10 +392,15 @@ export default function DevicesPage() {
           <div className="w-full sm:w-auto">
             <Select
               value={gateMode}
-              onValueChange={(value: "auto" | "manual") => {
-                setGateMode(value);
-                updateGateSettings({ mode: value });
-                toast.success(`Gate control set to ${value} mode`);
+              onValueChange={async (value: "auto" | "manual") => {
+                try {
+                  setGateMode(value);
+                  await updateGateSettings({ mode: value });
+                  toast.success(`Gate control set to ${value} mode`);
+                } catch (error) {
+                  console.error('Error updating gate mode:', error);
+                  toast.error('Failed to update gate control mode');
+                }
               }}
             >
               <SelectTrigger className="w-full sm:w-[180px]">
