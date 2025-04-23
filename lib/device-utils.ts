@@ -57,15 +57,12 @@ export function getDevices(): Promise<Device[]> {
 
   const supabase = createClientComponentClient();
   
-  // We should always fetch fresh data from the database to ensure we only get devices
-  // that belong to the current user due to Row Level Security
   return supabase.auth.getUser().then(({ data }) => {
     const userId = data?.user?.id;
     if (!userId) {
       return Promise.resolve([]);
     }
     
-    // With RLS enabled, this will automatically only return devices belonging to the current user
     return supabase
       .from("devices")
       .select("*")
@@ -78,7 +75,6 @@ export function getDevices(): Promise<Device[]> {
         const devices = dbDevices.map(initializeDeviceWithReadings);
 
         if (isClient) {
-          // Store the devices with a user-specific key to avoid conflicts
           const storageKey = `${DEVICES_STORAGE_KEY}-${userId}`;
           localStorage.setItem(storageKey, JSON.stringify(devices));
         }
@@ -89,7 +85,6 @@ export function getDevices(): Promise<Device[]> {
 
 export function updateDevices(devices: Device[]) {
   if (isClient) {
-    // Get the current user ID to make storage user-specific
     const supabase = createClientComponentClient();
     supabase.auth.getUser().then(({ data }) => {
       const userId = data?.user?.id;
@@ -141,7 +136,6 @@ export async function updateChartData(chartData: any[], deviceId?: string) {
   const storageKey = deviceId ? `${CHART_DATA_STORAGE_KEY}-${deviceId}` : CHART_DATA_STORAGE_KEY;
   localStorage.setItem(storageKey, JSON.stringify(chartData));
 
-  // If a deviceId is provided, store the latest reading in the database
   if (deviceId && chartData.length > 0) {
     const latestReading = chartData[chartData.length - 1];
     const supabase = createClientComponentClient();
@@ -188,10 +182,34 @@ const THRESHOLDS_STORAGE_KEY = "nitcat-thresholds";
 export async function getThresholds(deviceId?: string): Promise<ThresholdSettings> {
   if (!isClient) return DEFAULT_THRESHOLDS;
   
-  const supabase = createClientComponentClient();
+  // Always prioritize localStorage for consistent experience
+  // Check device-specific thresholds first if deviceId is provided
+  if (deviceId) {
+    const deviceThresholds = localStorage.getItem(`${THRESHOLDS_STORAGE_KEY}-${deviceId}`);
+    if (deviceThresholds) {
+      try {
+        return JSON.parse(deviceThresholds);
+      } catch (e) {
+        console.error('Error parsing stored device thresholds:', e);
+      }
+    }
+  }
   
+  // Then check global thresholds
+  const globalThresholds = localStorage.getItem(THRESHOLDS_STORAGE_KEY);
+  if (globalThresholds) {
+    try {
+      return JSON.parse(globalThresholds);
+    } catch (e) {
+      console.error('Error parsing stored global thresholds:', e);
+    }
+  }
+  
+  // Only if nothing in localStorage, try database
   try {
-    // If deviceId is provided, get thresholds for that specific device
+    const supabase = createClientComponentClient();
+    
+    // If deviceId is provided, try to get thresholds for that specific device
     if (deviceId) {
       const { data, error } = await supabase
         .from('thresholds')
@@ -199,76 +217,99 @@ export async function getThresholds(deviceId?: string): Promise<ThresholdSetting
         .eq('device_id', deviceId)
         .single();
       
-      if (error || !data) {
-        // If no thresholds found for this device in DB, fall back to localStorage or defaults
-        const storedThresholds = localStorage.getItem(`${THRESHOLDS_STORAGE_KEY}-${deviceId}`);
-        return storedThresholds ? JSON.parse(storedThresholds) : DEFAULT_THRESHOLDS;
+      if (!error && data) {
+        const thresholds = {
+          nitrogen: { min: data.nitrogen_min, max: data.nitrogen_max },
+          phosphorus: { min: data.phosphorus_min, max: data.phosphorus_max },
+          potassium: { min: data.potassium_min, max: data.potassium_max }
+        };
+        
+        // Save to localStorage for next time
+        localStorage.setItem(`${THRESHOLDS_STORAGE_KEY}-${deviceId}`, JSON.stringify(thresholds));
+        return thresholds;
       }
-      
-      return {
-        nitrogen: { min: data.nitrogen_min, max: data.nitrogen_max },
-        phosphorus: { min: data.phosphorus_min, max: data.phosphorus_max },
-        potassium: { min: data.potassium_min, max: data.potassium_max }
-      };
     }
-    
-    // If no deviceId, return default or from localStorage as before
-    const storedThresholds = localStorage.getItem(THRESHOLDS_STORAGE_KEY);
-    return storedThresholds ? JSON.parse(storedThresholds) : DEFAULT_THRESHOLDS;
   } catch (error) {
-    console.error('Error getting thresholds:', error);
-    return DEFAULT_THRESHOLDS;
+    console.error('Error getting thresholds from database:', error);
   }
+  
+  // If all else fails, return defaults
+  return DEFAULT_THRESHOLDS;
 }
 
 export async function updateThresholds(thresholds: ThresholdSettings, deviceId?: string) {
   if (!isClient) return;
   
-  // Store in localStorage as a backup/cache
+  // Always store in localStorage as the primary storage
   const storageKey = deviceId ? `${THRESHOLDS_STORAGE_KEY}-${deviceId}` : THRESHOLDS_STORAGE_KEY;
   localStorage.setItem(storageKey, JSON.stringify(thresholds));
   
-  // If no deviceId, we're only updating the local default thresholds (not tied to a device)
-  if (!deviceId) return;
+  // Also store in the global settings for app-wide consistency
+  if (deviceId) {
+    localStorage.setItem(THRESHOLDS_STORAGE_KEY, JSON.stringify(thresholds));
+  }
   
-  const supabase = createClientComponentClient();
-  
-  try {
-    // Check if thresholds exist for this device
-    const { data } = await supabase
-      .from('thresholds')
-      .select('id')
-      .eq('device_id', deviceId);
+  // Try to update database as a backup, but don't block on it
+  if (deviceId) {
+    const supabase = createClientComponentClient();
     
-    if (data && data.length > 0) {
-      // Update existing thresholds
-      await supabase
+    try {
+      // Check if thresholds exist for this device
+      const { data } = await supabase
         .from('thresholds')
-        .update({
-          nitrogen_min: thresholds.nitrogen.min,
-          nitrogen_max: thresholds.nitrogen.max,
-          phosphorus_min: thresholds.phosphorus.min,
-          phosphorus_max: thresholds.phosphorus.max,
-          potassium_min: thresholds.potassium.min,
-          potassium_max: thresholds.potassium.max
-        })
+        .select('id')
         .eq('device_id', deviceId);
-    } else {
-      // Insert new thresholds
-      await supabase
-        .from('thresholds')
-        .insert({
-          device_id: deviceId,
-          nitrogen_min: thresholds.nitrogen.min,
-          nitrogen_max: thresholds.nitrogen.max,
-          phosphorus_min: thresholds.phosphorus.min,
-          phosphorus_max: thresholds.phosphorus.max,
-          potassium_min: thresholds.potassium.min,
-          potassium_max: thresholds.potassium.max
+      
+      if (data && data.length > 0) {
+        // Update existing thresholds
+        // Use async/await pattern to handle database updates with proper error handling
+        const updatePromise = supabase
+          .from('thresholds')
+          .update({
+            nitrogen_min: thresholds.nitrogen.min,
+            nitrogen_max: thresholds.nitrogen.max,
+            phosphorus_min: thresholds.phosphorus.min,
+            phosphorus_max: thresholds.phosphorus.max,
+            potassium_min: thresholds.potassium.min,
+            potassium_max: thresholds.potassium.max
+          })
+          .eq('device_id', deviceId);
+          
+        updatePromise.then(() => {
+          console.log('Thresholds updated in database');
         });
+        
+        // Handle errors safely
+        updatePromise.then(null, (err: Error) => {
+          console.error('Database update failed:', err);
+        });
+      } else {
+        // Insert new thresholds
+        // Use async/await pattern to handle database inserts with proper error handling
+        const insertPromise = supabase
+          .from('thresholds')
+          .insert({
+            device_id: deviceId,
+            nitrogen_min: thresholds.nitrogen.min,
+            nitrogen_max: thresholds.nitrogen.max,
+            phosphorus_min: thresholds.phosphorus.min,
+            phosphorus_max: thresholds.phosphorus.max,
+            potassium_min: thresholds.potassium.min,
+            potassium_max: thresholds.potassium.max
+          });
+          
+        insertPromise.then(() => {
+          console.log('Thresholds inserted in database');
+        });
+        
+        // Handle errors safely
+        insertPromise.then(null, (err: Error) => {
+          console.error('Database insert failed:', err);
+        });
+      }
+    } catch (error) {
+      console.error('Error updating thresholds in database:', error);
     }
-  } catch (error) {
-    console.error('Error updating thresholds:', error);
   }
 }
 
@@ -332,47 +373,75 @@ export async function getGateSettings(): Promise<GateSettings> {
     return DEFAULT_GATE_SETTINGS;
   }
   
-  const supabase = createClientComponentClient();
+  // Always prioritize localStorage for immediate and consistent experience
+  const localSettings = localStorage.getItem(GATE_SETTINGS_KEY);
+  if (localSettings) {
+    try {
+      return JSON.parse(localSettings);
+    } catch (e) {
+      console.error('Error parsing gate settings from localStorage:', e);
+    }
+  }
   
+  // Try user-specific settings as fallback
   try {
-    // Get the user's profile which contains notification settings
+    const supabase = createClientComponentClient();
     const { data: userData } = await supabase.auth.getUser();
     const userId = userData?.user?.id;
     
-    if (!userId) {
-      return DEFAULT_GATE_SETTINGS;
+    if (userId) {
+      const userLocalSettings = localStorage.getItem(`${GATE_SETTINGS_KEY}-${userId}`);
+      if (userLocalSettings) {
+        try {
+          return JSON.parse(userLocalSettings);
+        } catch (e) {
+          console.error('Error parsing user gate settings:', e);
+        }
+      }
     }
-    
-    // Try to get from localStorage as a fallback
-    const localSettings = localStorage.getItem(`${GATE_SETTINGS_KEY}-${userId}`);
-    const localSettingsObj = localSettings ? JSON.parse(localSettings) : DEFAULT_GATE_SETTINGS;
-    
-    // The gate settings might be stored in the user profile in the future,
-    // but for now we'll use localStorage with user-specific keys
-    return localSettingsObj;
   } catch (error) {
-    console.error('Error getting gate settings:', error);
-    return DEFAULT_GATE_SETTINGS;
+    console.error('Error getting user for gate settings:', error);
   }
+  
+  // If nothing found, return defaults
+  return DEFAULT_GATE_SETTINGS;
 }
 
 export async function updateGateSettings(settings: GateSettings): Promise<void> {
   if (!isClient) return;
   
-  const supabase = createClientComponentClient();
+  // Always store in global localStorage as the primary storage
+  localStorage.setItem(GATE_SETTINGS_KEY, JSON.stringify(settings));
   
+  // Also try to store in user-specific localStorage and database as backup
   try {
-    // Get the user's ID
+    const supabase = createClientComponentClient();
     const { data: userData } = await supabase.auth.getUser();
     const userId = userData?.user?.id;
     
-    if (!userId) return;
-    
-    // Save to localStorage as a fallback/cache using user-specific key
-    localStorage.setItem(`${GATE_SETTINGS_KEY}-${userId}`, JSON.stringify(settings));
-    
-    // The gate settings might be stored in the user profile in the future
-    // For now, we're using localStorage with user-specific keys
+    if (userId) {
+      // Store in user-specific localStorage
+      localStorage.setItem(`${GATE_SETTINGS_KEY}-${userId}`, JSON.stringify(settings));
+      
+      // Update user profile gate auto control setting
+      // Use async/await pattern to handle profile updates with proper error handling
+      const profilePromise = supabase
+        .from('profiles')
+        .update({
+          gate_auto_control: settings.mode === 'auto',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', userId);
+        
+      profilePromise.then(() => {
+        console.log('Gate settings updated in profile');
+      });
+      
+      // Handle errors safely
+      profilePromise.then(null, (err: Error) => {
+        console.error('Failed to update gate settings in profile:', err);
+      });
+    }
   } catch (error) {
     console.error('Error updating gate settings:', error);
   }
@@ -457,8 +526,6 @@ export async function getUserProfile(): Promise<UserProfile> {
     
     if (error || !data) {
       console.warn('Profile not found for user ID:', userId);
-      // The profile should have been created by the database trigger when the user signed up
-      // Return a default profile without attempting to create one in the database
       return {
         ...DEFAULT_PROFILE,
         id: userId,
@@ -466,7 +533,6 @@ export async function getUserProfile(): Promise<UserProfile> {
       };
     }
     
-    // Return the profile with defaults for any missing fields
     return {
       id: data.id,
       name: data.name,
@@ -495,10 +561,8 @@ export async function updateUserProfile(profile: Partial<UserProfile>): Promise<
     
     if (!userId) return;
     
-    // Ensure the user has a profile by fetching it first
     await getUserProfile();
     
-    // Update the profile with the new values
     const { error } = await supabase
       .from('profiles')
       .update({
@@ -513,6 +577,6 @@ export async function updateUserProfile(profile: Partial<UserProfile>): Promise<
     }
   } catch (error) {
     console.error('Error updating user profile:', error);
-    throw error; // Re-throw to allow proper error handling in components
+    throw error; 
   }
 }
